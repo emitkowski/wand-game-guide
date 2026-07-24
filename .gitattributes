@@ -1,0 +1,17 @@
+* text=auto eol=lf
+
+*.blade.php diff=html
+*.css diff=css
+*.html diff=html
+*.md diff=markdown
+*.php diff=php
+
+/.github export-ignore
+CHANGELOG.md export-ignore
+.styleci.yml export-ignore
+
+# MAP — merge-friendly append-only logs
+docs/BUGS.md merge=union
+docs/BUGS_ARCHIVE.md merge=union
+docs/ARCHITECTURE_HISTORY.md merge=union
+docs/METRICS_HISTORY.md merge=union
