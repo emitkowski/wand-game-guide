@@ -12,8 +12,8 @@ _All suites at a glance — update after every coverage run_
 
 | Suite | Tool | Overall | Threshold | Status | Last run |
 |---|---|---|---|---|---|
-| Backend | [PHPUnit / Pest] | 0% | [N]% | ○ no data | — |
-| Frontend | [Vitest / Jest] | 0% | [N]% | ○ no data | — |
+| Backend | PHPUnit | 47.5% | 80% | ✗ below threshold | 2026-07-24 |
+| Frontend | Vitest | 0% | [N]% | ○ no data | — |
 
 _Remove rows that don't apply. Add rows for additional suites (e2e, contract, etc.)._
 
@@ -21,39 +21,44 @@ _Remove rows that don't apply. Add rows for additional suites (e2e, contract, et
 
 # Backend ([PHPUnit / Pest])
 
-**Suite:** [N] tests passing, 0 failing ([duration with coverage]).
-**Overall coverage:** 0% ([PCOV / Xdebug], measured [YYYY-MM-DD]).
+**Suite:** 64 tests passing, 0 failing (3.51s with coverage).
+**Overall coverage:** 47.5% (PCOV, measured 2026-07-24).
 
-> Re-run `[coverage command]` and update the % column whenever a tracked file's coverage moves ≥2 points or crosses a 100% boundary.
+> Re-run `./vendor/bin/sail artisan test --coverage --compact` and update the % column whenever a tracked file's coverage moves ≥2 points or crosses a 100% boundary.
 
 ## How to run
 
 ```bash
-[run command]           # run the suite
-[coverage command]      # per-file coverage report
+./vendor/bin/sail artisan test --compact              # run the suite
+./vendor/bin/sail artisan test --coverage --compact    # per-file coverage report (files below 100% only)
 ```
 
 ---
 
-## Area 1 — [e.g. Critical / destructive / security-load-bearing]
+## Area 1 — Chat history sync (docs/chat-sync-spec.md)
 
-_Files where a bug causes data loss, credential exposure, or irreversible side-effects._
-
-| File | % | Status | Notes |
-|---|---|---|---|
-| `[path/to/file.php]` | 0% | `[none]` | [brief note — what's missing and why] |
-
-## Area 2 — [e.g. Core business logic / domain]
+_All files below are at 100% per the 2026-07-24 coverage run — they don't appear in Collision's compact report, which only lists files under 100%._
 
 | File | % | Status | Notes |
 |---|---|---|---|
-| `[path/to/file.php]` | 0% | `[none]` | [brief note] |
+| `app/Actions/RecordConversationMessage.php` | 100% | `[covered]` | Idempotency, locked-counter ordering, broadcast dispatch — all exercised by `ConversationMessageTest` |
+| `app/Http/Controllers/Api/V1/ConversationMessageController.php` | 100% | `[covered]` | |
+| `app/Http/Requests/Api/V1/StoreMessageRequest.php` | 100% | `[covered]` | Authorization path covered by the cross-user rejection test |
+| `app/Http/Requests/Api/V1/IndexMessagesRequest.php` | 100% | `[covered]` | |
+| `app/Http/Resources/MessageResource.php` | 100% | `[covered]` | |
+| `app/Models/Conversation.php`, `app/Models/Message.php` | 100% | `[covered]` | |
+| `app/Events/MessageCreated.php`, `app/Jobs/BroadcastMessageJob.php` | 100% | `[covered]` | Exercised indirectly — `QUEUE_CONNECTION=sync` in tests runs the job inline on every real (non-idempotent-replay) message creation |
+| `routes/channels.php` (`conversation.{id}` channel) | 0% | `[none]` | No test exercises broadcast channel authorization directly |
 
-## Area 3 — [e.g. HTTP layer / controllers / requests]
+## Area 2 — Pre-existing app (not touched this session)
+
+_Not re-audited in depth — see the 2026-07-24 coverage run output for the current low-coverage list. Flagging only what's directly relevant:_
 
 | File | % | Status | Notes |
 |---|---|---|---|
-| `[path/to/file.php]` | 0% | `[none]` | [brief note] |
+| `app/Utils/ApiResponse/*` | 0% | `[none]` | Dead code (see docs/CODE_PATTERNS.md anti-patterns) — not worth testing, candidate for removal |
+| `app/Facades/Logger.php`, `app/Utils/Logger/*` | 0% | `[none]` | Pre-existing gap, unrelated to chat sync |
+| `app/Jobs/BroadcastPingJob.php` | 50% | `[partial]` | Pre-existing gap, unrelated to chat sync |
 
 _Add or remove area sections to match the project's actual code structure._
 
@@ -61,9 +66,9 @@ _Add or remove area sections to match the project's actual code structure._
 
 ## What's left to tackle (backend)
 
-1. [Highest-priority gap — file, why it matters, what's blocking]
-2. [Next gap]
-3. [Integration-level files deferred pending a binary harness or external service]
+1. `routes/channels.php` conversation channel authorization has no direct test — add one asserting a non-owner is denied and the owner is allowed (would also guard against a regression of the kind logged as BUG-1 in docs/BUGS.md, which was found in the *other* channel definition in this same file).
+2. `app/Utils/ApiResponse/*` is confirmed dead code (not registered, dependency not installed) — consider deleting rather than testing.
+3. Overall app coverage (47.5%) is below this repo's 80% threshold (`.claude/rules/testing.md`) — pre-existing gap, not introduced by the chat-sync work, but worth a dedicated pass.
 
 ---
 
@@ -128,4 +133,4 @@ _List what is explicitly included in `[vitest/jest].config.js → coverage.inclu
 
 | Date | Suite | Overall | Tests | Duration |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| 2026-07-24 | Backend (PHPUnit) | 47.5% | 64 passed | 3.51s |

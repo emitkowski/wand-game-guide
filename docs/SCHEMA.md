@@ -13,17 +13,43 @@ Relationships: [list]
 Business rules: [any rules baked into the schema]
 -->
 
+### conversations
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK |
+| user_id | uuid | FK -> users.id, cascade delete |
+| title | string, nullable | unused by current endpoints |
+| last_sequence_number | bigint | atomic ordering counter, see business rules |
+| last_message_at | timestamp, nullable | |
+Indexes: none beyond PK/FK
+Relationships: belongsTo User, hasMany Message
+Business rules: `last_sequence_number` only ever written by `App\Actions\RecordConversationMessage` via `forceFill()` — not in `$fillable`
+
+### messages
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid | PK, external identity |
+| conversation_id | uuid | FK -> conversations.id, cascade delete |
+| sender_type | string (enum cast) | player \| assistant \| system |
+| body | text | |
+| origin_platform | string (enum cast) | desktop \| web \| overlay |
+| client_message_id | uuid | idempotency key |
+| client_created_at | timestamp, nullable | device clock, display hint only — never authoritative for ordering |
+| sequence_number | bigint | authoritative order within a conversation |
+Indexes: unique (conversation_id, client_message_id); unique (conversation_id, sequence_number)
+Relationships: belongsTo Conversation
+Business rules: append-only — no update path for `body`; see docs/chat-sync-spec.md for the full sync design
+
 ## Relationships
-[Which models relate to which, type of relationship, foreign key.
-Focus on non-obvious relationships or those deviating from conventions.]
+- `Conversation belongsTo User` (`user_id`), `User hasMany Conversation`
+- `Message belongsTo Conversation` (`conversation_id`), `Conversation hasMany Message`
 
 ## Key business rules
-[Rules enforced at the schema level — soft deletes, audit fields,
-computed columns, columns that should never be written to directly.]
+- `messages` is treated as immutable/append-only — no update path exists for `body`. If retraction is added later, use a tombstone column rather than deleting/editing rows (see docs/chat-sync-spec.md §2, §9).
+- `messages.sequence_number` and `conversations.last_sequence_number` must only ever be written by `App\Actions\RecordConversationMessage`, inside a transaction with `lockForUpdate()` on the conversation row. Both fields are deliberately absent from `Conversation::$fillable`; the action uses `forceFill()` to write them.
+- `messages.client_message_id` is the idempotency key (unique per conversation) — client-retried sends must never produce duplicate rows.
 
 ## Internal contracts
-[Internal service-to-service payload shapes only — things that cross
-a process boundary within your own system, not external APIs.]
-[External API documentation goes in docs/api/ instead.]
+- None yet — `RecordConversationMessage` is currently only called from `ConversationMessageController`. A future internal path that persists assistant-generated replies should call the same action rather than writing to `messages` directly, to keep ordering/idempotency/broadcast behavior consistent (see docs/chat-sync-spec.md §5).
 
 ---

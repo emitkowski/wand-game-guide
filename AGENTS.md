@@ -12,12 +12,13 @@ Load @CLAUDE.local.md if it exists or equivalent local rules file for your tool 
 4. Ask the developer what they want to work on before acting
 
 ## Commands — fill these in for this project
-- Run tests: `composer test`
-- Static analysis: `[STATIC ANALYSIS COMMAND]`
-- Start services: `php artisan serve`
-- Build: `npm run build`
+- Run tests (backend): `./vendor/bin/sail artisan test --compact`
+- Run tests (frontend): `./vendor/bin/sail npm run test`
+- Static analysis: none installed (no phpstan/larastan/pint in composer.json) — frontend has `./vendor/bin/sail npm run lint:check` and `./vendor/bin/sail npm run types:check`
+- Start services: `./vendor/bin/sail up -d`
+- Build: `./vendor/bin/sail npm run build` (or `./vendor/bin/sail npm run dev` for HMR)
 
-_If any command above still shows a `[...]` placeholder, detect it by reading composer.json, package.json, and Makefile, then replace the placeholder in this file._
+_No Makefile exists in this project. If any command above ever needs re-detecting, read composer.json and package.json again._
 
 ## Load when relevant
 Read @docs/ARCHITECTURE.md when working on structure or new features

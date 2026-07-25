@@ -7,10 +7,6 @@ import PasswordInput from '@/components/PasswordInput.vue';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { edit } from '@/routes/security';
-/* @chisel-passkeys */
-import type { Props as ManagePasskeysProps } from '@/components/ManagePasskeys.vue';
-import ManagePasskeys from '@/components/ManagePasskeys.vue';
-/* @end-chisel-passkeys */
 /* @chisel-2fa */
 import type { Props as ManageTwoFactorProps } from '@/components/ManageTwoFactor.vue';
 import ManageTwoFactor from '@/components/ManageTwoFactor.vue';
@@ -18,8 +14,7 @@ import ManageTwoFactor from '@/components/ManageTwoFactor.vue';
 
 type Props = {
     passwordRules: string;
-} /* @chisel-passkeys */ & ManagePasskeysProps /* @end-chisel-passkeys */ /* @chisel-2fa */ &
-    ManageTwoFactorProps /* @end-chisel-2fa */;
+} /* @chisel-2fa */ & ManageTwoFactorProps /* @end-chisel-2fa */;
 
 const props = defineProps<Props>();
 
@@ -117,11 +112,4 @@ defineOptions({
         :twoFactorEnabled="twoFactorEnabled"
     />
     <!-- @end-chisel-2fa -->
-
-    <!-- @chisel-passkeys -->
-    <ManagePasskeys
-        :canManagePasskeys="canManagePasskeys"
-        :passkeys="passkeys"
-    />
-    <!-- @end-chisel-passkeys -->
 </template>

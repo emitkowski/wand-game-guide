@@ -13,9 +13,6 @@ import { register } from '@/routes';
 /* @end-chisel-registration */
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
-/* @chisel-passkeys */
-import PasskeyVerify from '@/components/PasskeyVerify.vue';
-/* @end-chisel-passkeys */
 
 defineOptions({
     layout: {
@@ -39,10 +36,6 @@ defineProps<{
     >
         {{ status }}
     </div>
-
-    <!-- @chisel-passkeys -->
-    <PasskeyVerify />
-    <!-- @end-chisel-passkeys -->
 
     <Form
         v-bind="store.form()"
