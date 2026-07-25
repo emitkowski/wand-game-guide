@@ -24,6 +24,12 @@ _Reversals: add new entry "YYYY-MM-DD — Reversal of [original title]"_
 **Reasoning:** An append-only log removes the hardest class of multi-device sync problems (concurrent edit conflicts) entirely, since the only sync question left is ordering of new entries, not merging changes to existing ones. This trade directly shaped the whole sync design in docs/chat-sync-spec.md §4.2.
 **Consequences:** A future edit/retraction feature is a schema addition (tombstone or versioning), not a redesign of the sync model — but it is out of scope today, and no code currently depends on messages being mutable.
 
+### 2026-07-25 — Message history query switched to descending order; `next_cursor` is the "load older" token
+**Decision:** `GET /api/v1/conversations/{id}/messages` now queries `orderByDesc('sequence_number')->cursorPaginate()` instead of ascending. With no cursor, this returns the most recent messages (previously returned the oldest — see BUG-3, docs/BUGS_ARCHIVE.md). The resource collection's `data` array is reversed for ascending display order without touching the underlying paginator, so `meta.next_cursor` (not `prev_cursor`) is the correct token to request older history with.
+**Alternatives considered:** Keeping ascending order and having the client always request the *last* page (requires knowing total count up front, which cursor pagination deliberately avoids); hand-constructing a `Illuminate\Pagination\Cursor` pointing at "the newest end" to feed into an ascending query (verified as possible, but more code and more ways to get the cursor's internal `pointsToNextItems` flag wrong than just flipping the query direction).
+**Reasoning:** A chat UI's default view is "show me where the conversation currently stands," not "show me the beginning." Descending-order-with-reversed-output achieves that using cursorPaginate()'s own built-in mechanics for every page (including the first), rather than special-casing the initial request.
+**Consequences:** This is now the API's actual contract — any client (this repo's `resources/js/pages/game-guide/Chat.vue`, or a future desktop/overlay client per docs/chat-sync-spec.md) must read `meta.next_cursor` for "load older," not `prev_cursor`. The Redis cache added the same day (docs/chat-sync-spec.md §6) is built on this corrected query, not the buggy one.
+
 ---
 
 <!-- Example entry (delete this when adding your first real entry):

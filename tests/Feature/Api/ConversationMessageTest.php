@@ -6,6 +6,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -104,7 +105,7 @@ class ConversationMessageTest extends TestCase
         $response->assertForbidden();
     }
 
-    public function test_messages_are_listed_in_order_with_cursor_pagination(): void
+    public function test_messages_endpoint_returns_the_most_recent_messages_first_then_pages_older(): void
     {
         $user = User::factory()->create();
         $conversation = Conversation::factory()->for($user)->create();
@@ -117,20 +118,54 @@ class ConversationMessageTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $firstPage = $this->getJson("/api/v1/conversations/{$conversation->id}/messages?limit=2");
+        $latest = $this->getJson("/api/v1/conversations/{$conversation->id}/messages?limit=2");
 
-        $firstPage->assertOk();
-        $this->assertCount(2, $firstPage->json('data'));
-        $this->assertSame(1, $firstPage->json('data.0.sequence_number'));
-        $this->assertSame(2, $firstPage->json('data.1.sequence_number'));
+        $latest->assertOk();
+        $this->assertCount(2, $latest->json('data'));
+        $this->assertSame(4, $latest->json('data.0.sequence_number'));
+        $this->assertSame(5, $latest->json('data.1.sequence_number'));
 
-        $nextCursor = $firstPage->json('meta.next_cursor');
-        $this->assertNotNull($nextCursor);
+        $olderCursor = $latest->json('meta.next_cursor');
+        $this->assertNotNull($olderCursor);
 
-        $secondPage = $this->getJson("/api/v1/conversations/{$conversation->id}/messages?limit=2&cursor={$nextCursor}");
+        $older = $this->getJson("/api/v1/conversations/{$conversation->id}/messages?limit=2&cursor={$olderCursor}");
 
-        $secondPage->assertOk();
-        $this->assertSame(3, $secondPage->json('data.0.sequence_number'));
-        $this->assertSame(4, $secondPage->json('data.1.sequence_number'));
+        $older->assertOk();
+        $this->assertSame(2, $older->json('data.0.sequence_number'));
+        $this->assertSame(3, $older->json('data.1.sequence_number'));
+    }
+
+    public function test_default_history_fetch_is_cached_and_invalidated_on_new_message(): void
+    {
+        $user = User::factory()->create();
+        $conversation = Conversation::factory()->for($user)->create();
+
+        Sanctum::actingAs($user);
+
+        $this->postJson("/api/v1/conversations/{$conversation->id}/messages", [
+            'body' => 'The first message',
+            'client_message_id' => (string) Str::uuid(),
+            'origin_platform' => 'web',
+        ])->assertCreated();
+
+        $cacheKey = "conversation:{$conversation->id}:recent";
+        $this->assertFalse(Cache::has($cacheKey), 'cache should be invalidated when a new message is recorded');
+
+        $first = $this->getJson("/api/v1/conversations/{$conversation->id}/messages");
+        $first->assertOk();
+        $this->assertCount(1, $first->json('data'));
+        $this->assertTrue(Cache::has($cacheKey));
+
+        $this->postJson("/api/v1/conversations/{$conversation->id}/messages", [
+            'body' => 'A second message',
+            'client_message_id' => (string) Str::uuid(),
+            'origin_platform' => 'web',
+        ])->assertCreated();
+
+        $this->assertFalse(Cache::has($cacheKey), 'cache should be invalidated when a new message is recorded');
+
+        $second = $this->getJson("/api/v1/conversations/{$conversation->id}/messages");
+        $second->assertOk();
+        $this->assertCount(2, $second->json('data'));
     }
 }

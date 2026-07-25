@@ -1,45 +1,49 @@
 ---
-name: "[Project Name] Design System"
+name: "Wand Game Guide Design System"
+colors:
+  primary:
+    value: var(--primary)
+    on: var(--primary-foreground)
+typography:
+  body-md:
+    fontFamily: "Instrument Sans"
+rounded:
+  md: 0.5rem
 ---
 
 # DESIGN.md
 _UI/frontend design conventions — human-authored; Claude may propose edits, but never writes them without developer approval_
-_Optional — delete this file if the project has no UI layer_
-_Last updated: YYYY-MM-DD_
-
-_YAML frontmatter follows the `@google/design.md` DESIGN.md spec (alpha) — keep it lintable with `npx @google/design.md lint`. Only `name` is required to keep the file valid; every other top-level key (`colors`, `typography`, `rounded`, `spacing`, `components`) is optional and should stay absent until the project actually defines it — a placeholder color/font value fails the linter's CSS validation and an unfilled placeholder Claude can't distinguish from an intentional one is worse than a missing key. Once `colors` is added, include a `primary` role and at least one `typography` entry — the linter warns on those specifically._
-
-_If tokens already live in code (e.g. tailwind.config, design-tokens.json), don't duplicate the full set here — note that pointer in the relevant section below (Colors/Typography/Shapes) instead, and only mirror into frontmatter the handful of tokens worth surfacing for quick agent reference._
+_Last updated: 2026-07-25_
 
 ## Conflict resolution
-If a component in code visibly contradicts this file (wrong color, wrong spacing, wrong font), this file wins by default — flag the discrepancy to the developer rather than silently matching the code. Exception: if the developer explicitly requests something that contradicts this file, follow the request and note the deviation as a proposed addition (see AGENTS.md's write rule for docs/DESIGN.md) rather than silently overriding the file.
+If a component in code visibly contradicts this file (wrong color, wrong spacing, wrong font), this file wins by default — flag the discrepancy to the developer rather than silently matching the code. Exception: if the developer explicitly requests something that contradicts this file, follow the request and note the deviation as a proposed addition rather than silently overriding the file.
 
 ## Overview
-[Plain-language description of the design system's personality and goals.]
+shadcn-vue ("new-york-v4" style, neutral base color), CSS-variable-driven light/dark theming (toggled via `resources/js/composables/useAppearance.ts`). Deliberately standard shadcn/Tailwind semantic tokens throughout rather than a bespoke visual identity — light/dark and any future palette swap costs nothing as a result.
 
 ## Accessibility baseline
-[Minimum a11y requirements — e.g. WCAG level, required aria patterns, keyboard navigation expectations.]
+Reka UI (Radix-Vue-equivalent) primitives under the hood for every interactive `components/ui/*` element — keyboard navigation, focus rings (`focus-visible:ring-[3px]`), and ARIA semantics come from the library, not hand-rolled per component.
 
 ## Colors
-[Describe the palette's intent. Expand the `colors` map in the frontmatter above as roles are added — primary, secondary, tertiary, neutral, surface, on-surface, and error are the spec's common roles.]
+Full token set lives in `resources/css/app.css` (CSS custom properties) — don't duplicate it here. Standard shadcn semantic roles only: `background`/`foreground`, `card`, `popover`, `primary`, `secondary`, `muted`, `accent`, `destructive`, `border`, `input`, `ring`, plus a dedicated `sidebar-*` set for the app shell. Never hardcode a hex/rgb value in a component — always the semantic Tailwind class (`bg-primary`, `text-muted-foreground`, etc.), as done throughout `resources/js/pages/game-guide/Chat.vue` and `Dashboard.vue`.
 
 ## Typography
-[Describe the type voice and pairing. Expand the `typography` map in the frontmatter above with named text styles (e.g. h1, body-md, label-sm), each carrying fontFamily/fontSize/fontWeight/lineHeight/letterSpacing as needed.]
+Single font family, "Instrument Sans," for everything — no separate heading font. Page titles: `text-lg font-semibold`. Secondary/description text: `text-sm text-muted-foreground`.
 
 ## Layout
-[Spacing scale, grid, and responsive breakpoints. Add a `spacing` map to the frontmatter (e.g. sm/md/lg) as the project defines one.]
+Sidebar-based app shell (`layouts/app/AppSidebarLayout.vue`) for authenticated pages. Single-purpose focused pages (like the chat) constrain to a centered, narrow column (`mx-auto max-w-2xl`) rather than stretching full-width — deliberate for readability on a conversational UI.
 
 ## Elevation & Depth
-[Shadow and z-index conventions, if any.]
+Minimal — a single `shadow-sm` on the chat panel card is currently the only deliberate elevation in the app. No z-index scale defined yet (nothing currently stacks/overlaps beyond shadcn's own dialog/dropdown primitives, which manage their own layering).
 
 ## Shapes
-[Border-radius scale. Add a `rounded` map to the frontmatter (e.g. sm/md/lg/full) as the project defines one.]
+Base radius 0.5rem (`--radius` in `resources/css/app.css`). Panels/cards: `rounded-xl`. Chat bubbles: `rounded-2xl` with one corner squared off (`rounded-br-sm` for the sender's side) for an iMessage-style tail. Pill-shaped inputs/icon buttons: `rounded-full` (the chat composer).
 
 ## Components
-[Where components live, naming, and composition patterns specific to this project. Expand the `components` map in the frontmatter for reusable token bundles as they're established.]
+Generated shadcn-vue primitives live in `resources/js/components/ui/*` — don't hand-edit; regenerate via the shadcn-vue CLI if a primitive needs to change. Feature-specific composition (e.g. the whole chat view) lives directly in `pages/`, not as extracted reusable components, when nothing else reuses it (see docs/CODE_PATTERNS.md's structural patterns).
 
 ## Do's and Don'ts
-**Do:** [Patterns to follow — name the specific file/component that demonstrates it well.]
-**Don't:** [UI patterns in the codebase that should not be copied. Name the specific file/component.]
+**Do:** Reuse an existing `components/ui/*` primitive before reaching for a new one or a raw HTML element — see `resources/js/pages/game-guide/Chat.vue` for the one deliberate exception (a plain `<textarea>` for the composer, since no `ui/textarea` component exists yet in this project).
+**Don't:** Introduce a new color outside the semantic token set, or a new font family, without discussing it first — this app has zero bespoke branding by design.
 
 ---

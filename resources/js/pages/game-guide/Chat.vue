@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
-import { Loader2, RotateCw, Send } from '@lucide/vue';
+import { Loader2, RotateCw, Send, Sparkles } from '@lucide/vue';
 import ConversationMessageController from '@/actions/App/Http/Controllers/Api/V1/ConversationMessageController';
 import { Button } from '@/components/ui/button';
 import { index as gameGuideIndex } from '@/routes/game-guide';
 
 type SenderType = 'player' | 'assistant' | 'system';
 type OriginPlatform = 'desktop' | 'web' | 'overlay';
-type MessageStatus = 'sending' | 'sent' | 'failed';
+type MessageStatus = 'queued' | 'sending' | 'sent' | 'failed';
 
 interface Message {
     id: string;
@@ -23,6 +23,13 @@ interface Message {
     status?: MessageStatus;
 }
 
+interface OutboxEntry {
+    clientMessageId: string;
+    body: string;
+    originPlatform: OriginPlatform;
+    queuedAt: string;
+}
+
 const props = defineProps<{
     conversationId: string;
 }>();
@@ -34,11 +41,39 @@ defineOptions({
 });
 
 const messages = ref<Message[]>([]);
-const prevCursor = ref<string | null>(null);
+const olderCursor = ref<string | null>(null);
 const loadingOlder = ref(false);
 const draft = ref('');
-const sending = ref(false);
+const flushing = ref(false);
 const scrollContainer = ref<HTMLElement | null>(null);
+
+const outboxKey = `game-guide:outbox:${props.conversationId}`;
+
+function loadOutbox(): OutboxEntry[] {
+    try {
+        const raw = localStorage.getItem(outboxKey);
+
+        return raw ? (JSON.parse(raw) as OutboxEntry[]) : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveOutbox(entries: OutboxEntry[]) {
+    localStorage.setItem(outboxKey, JSON.stringify(entries));
+}
+
+function addToOutbox(entry: OutboxEntry) {
+    saveOutbox([...loadOutbox(), entry]);
+}
+
+function removeFromOutbox(clientMessageId: string) {
+    saveOutbox(
+        loadOutbox().filter(
+            (entry) => entry.clientMessageId !== clientMessageId,
+        ),
+    );
+}
 
 async function scrollToBottom() {
     await nextTick();
@@ -50,17 +85,40 @@ async function scrollToBottom() {
 
 async function loadInitial() {
     const { data } = await window.axios.get(
-        ConversationMessageController.index.url(props.conversationId, {
-            query: { limit: 30 },
-        }),
+        ConversationMessageController.index.url(props.conversationId),
     );
     messages.value = data.data;
-    prevCursor.value = data.meta?.prev_cursor ?? null;
+    olderCursor.value = data.meta?.next_cursor ?? null;
     await scrollToBottom();
 }
 
+function hydrateOutbox() {
+    for (const entry of loadOutbox()) {
+        const alreadyFetched = messages.value.some(
+            (m) => m.client_message_id === entry.clientMessageId,
+        );
+
+        if (alreadyFetched) {
+            continue;
+        }
+
+        messages.value.push({
+            id: entry.clientMessageId,
+            conversation_id: props.conversationId,
+            sender_type: 'player',
+            body: entry.body,
+            origin_platform: entry.originPlatform,
+            client_message_id: entry.clientMessageId,
+            sequence_number: 0,
+            client_created_at: entry.queuedAt,
+            created_at: entry.queuedAt,
+            status: 'queued',
+        });
+    }
+}
+
 async function loadOlder() {
-    if (!prevCursor.value || loadingOlder.value) {
+    if (!olderCursor.value || loadingOlder.value) {
         return;
     }
 
@@ -70,11 +128,11 @@ async function loadOlder() {
     try {
         const { data } = await window.axios.get(
             ConversationMessageController.index.url(props.conversationId, {
-                query: { cursor: prevCursor.value, limit: 30 },
+                query: { cursor: olderCursor.value },
             }),
         );
         messages.value = [...data.data, ...messages.value];
-        prevCursor.value = data.meta?.prev_cursor ?? null;
+        olderCursor.value = data.meta?.next_cursor ?? null;
 
         await nextTick();
 
@@ -87,53 +145,86 @@ async function loadOlder() {
     }
 }
 
-async function send(message: Message) {
-    sending.value = true;
+/**
+ * Replays the persisted outbox sequentially, one message at a time, so a
+ * later message never reaches the server ahead of an earlier one that's
+ * still failing/offline — matches docs/chat-sync-spec.md §4.3.
+ */
+async function flushOutbox() {
+    if (flushing.value) {
+        return;
+    }
+
+    flushing.value = true;
 
     try {
-        const { data } = await window.axios.post(
-            ConversationMessageController.store.url(props.conversationId),
-            {
-                body: message.body,
-                client_message_id: message.client_message_id,
-                origin_platform: message.origin_platform,
-            },
-        );
+        while (navigator.onLine) {
+            const entry = loadOutbox()[0];
 
-        const index = messages.value.findIndex(
-            (m) => m.client_message_id === message.client_message_id,
-        );
+            if (!entry) {
+                break;
+            }
 
-        if (index !== -1) {
-            messages.value[index] = { ...data.data, status: 'sent' };
-        }
-    } catch {
-        const index = messages.value.findIndex(
-            (m) => m.client_message_id === message.client_message_id,
-        );
+            const message = messages.value.find(
+                (m) => m.client_message_id === entry.clientMessageId,
+            );
 
-        if (index !== -1) {
-            messages.value[index] = {
-                ...messages.value[index],
-                status: 'failed',
-            };
+            if (message) {
+                message.status = 'sending';
+            }
+
+            try {
+                const { data } = await window.axios.post(
+                    ConversationMessageController.store.url(
+                        props.conversationId,
+                    ),
+                    {
+                        body: entry.body,
+                        client_message_id: entry.clientMessageId,
+                        origin_platform: entry.originPlatform,
+                    },
+                );
+
+                removeFromOutbox(entry.clientMessageId);
+
+                const index = messages.value.findIndex(
+                    (m) => m.client_message_id === entry.clientMessageId,
+                );
+
+                if (index !== -1) {
+                    messages.value[index] = { ...data.data, status: 'sent' };
+                }
+            } catch {
+                if (message) {
+                    message.status = navigator.onLine ? 'failed' : 'queued';
+                }
+
+                break;
+            }
         }
     } finally {
-        sending.value = false;
+        flushing.value = false;
     }
 }
 
 async function sendDraft() {
     const body = draft.value.trim();
 
-    if (!body || sending.value) {
+    if (!body || flushing.value) {
         return;
     }
 
     const clientMessageId = crypto.randomUUID();
     const now = new Date().toISOString();
 
-    const optimistic: Message = {
+    addToOutbox({
+        clientMessageId,
+        body,
+        originPlatform: 'web',
+        queuedAt: now,
+    });
+
+    messages.value.push({
         id: clientMessageId,
         conversation_id: props.conversationId,
         sender_type: 'player',
@@ -143,18 +234,17 @@ async function sendDraft() {
         sequence_number: 0,
         client_created_at: now,
         created_at: now,
-        status: 'sending',
-    };
+        status: navigator.onLine ? 'sending' : 'queued',
+    });
 
-    messages.value.push(optimistic);
     draft.value = '';
     await scrollToBottom();
-    await send(optimistic);
+    await flushOutbox();
 }
 
 function retry(message: Message) {
     message.status = 'sending';
-    send(message);
+    flushOutbox();
 }
 
 function onComposerKeydown(event: KeyboardEvent) {
@@ -164,8 +254,10 @@ function onComposerKeydown(event: KeyboardEvent) {
     }
 }
 
-onMounted(() => {
-    loadInitial();
+onMounted(async () => {
+    await loadInitial();
+    hydrateOutbox();
+    await flushOutbox();
 
     window.Echo.private(`conversation.${props.conversationId}`).listen(
         '.message.created',
@@ -176,25 +268,37 @@ onMounted(() => {
             }
         },
     );
+
+    window.addEventListener('online', flushOutbox);
 });
 
 onUnmounted(() => {
     window.Echo.leaveChannel(`conversation.${props.conversationId}`);
+    window.removeEventListener('online', flushOutbox);
 });
 </script>
 
 <template>
     <Head title="Game Guide" />
 
-    <div class="flex h-full flex-1 flex-col gap-4 p-4">
+    <div class="mx-auto flex h-full w-full max-w-2xl flex-1 flex-col p-4">
+        <div class="mb-4">
+            <h1 class="text-lg font-semibold">Game Guide</h1>
+            <p class="text-sm text-muted-foreground">
+                Ask about wands, spells, houses, and anything else you want to
+                know about the wizarding world — Game Guide remembers your
+                conversation across sessions and devices.
+            </p>
+        </div>
+
         <div
-            class="flex flex-1 flex-col overflow-hidden rounded-xl border border-sidebar-border/70 dark:border-sidebar-border"
+            class="flex flex-1 flex-col overflow-hidden rounded-xl border border-sidebar-border bg-background shadow-sm"
         >
             <div
                 ref="scrollContainer"
-                class="flex-1 space-y-3 overflow-y-auto p-4"
+                class="flex-1 space-y-4 overflow-y-auto p-4"
             >
-                <div v-if="prevCursor" class="flex justify-center">
+                <div v-if="olderCursor" class="flex justify-center">
                     <Button
                         variant="ghost"
                         size="sm"
@@ -212,7 +316,7 @@ onUnmounted(() => {
                 <div
                     v-for="message in messages"
                     :key="message.id"
-                    class="flex"
+                    class="flex items-end gap-2"
                     :class="
                         message.sender_type === 'player'
                             ? 'justify-end'
@@ -220,17 +324,25 @@ onUnmounted(() => {
                     "
                 >
                     <div
-                        class="max-w-[75%] rounded-xl px-4 py-2 text-sm"
+                        v-if="message.sender_type !== 'player'"
+                        class="flex size-7 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground"
+                    >
+                        <Sparkles class="size-4" />
+                    </div>
+
+                    <div
+                        class="max-w-[80%] rounded-2xl px-4 py-2 text-sm"
                         :class="
                             message.sender_type === 'player'
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-muted text-muted-foreground'
+                                ? 'rounded-br-sm bg-primary text-primary-foreground'
+                                : 'rounded-bl-sm bg-muted text-muted-foreground'
                         "
                     >
                         <p class="whitespace-pre-wrap">{{ message.body }}</p>
                         <div
                             v-if="
                                 message.status === 'sending' ||
+                                message.status === 'queued' ||
                                 message.status === 'failed'
                             "
                             class="mt-1 flex items-center gap-1 text-xs opacity-80"
@@ -239,6 +351,9 @@ onUnmounted(() => {
                                 v-if="message.status === 'sending'"
                                 class="size-3 animate-spin"
                             />
+                            <span v-else-if="message.status === 'queued'">
+                                Queued — will send when back online
+                            </span>
                             <template v-else>
                                 <span>Failed to send</span>
                                 <button
@@ -256,20 +371,21 @@ onUnmounted(() => {
             </div>
 
             <form
-                class="flex items-end gap-2 border-t border-sidebar-border/70 p-3 dark:border-sidebar-border"
+                class="flex items-end gap-2 border-t border-sidebar-border bg-muted/30 p-3"
                 @submit.prevent="sendDraft"
             >
                 <textarea
                     v-model="draft"
                     rows="1"
                     placeholder="Ask Game Guide anything…"
-                    class="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    class="max-h-32 flex-1 resize-none rounded-3xl border border-input bg-background px-4 py-2.5 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                     @keydown="onComposerKeydown"
                 />
                 <Button
                     type="submit"
                     size="icon"
-                    :disabled="sending || !draft.trim()"
+                    class="shrink-0 rounded-full"
+                    :disabled="flushing || !draft.trim()"
                 >
                     <Send class="size-4" />
                 </Button>

@@ -1,19 +1,25 @@
 # GLOSSARY.md
 _Domain terms, abbreviations, and concepts a newcomer wouldn't know_
 _Claude-maintained — append immediately when a project-specific term is encountered; human reviews for accuracy_
-_Last updated: YYYY-MM-DD_
+_Last updated: 2026-07-25_
 
 ## Terms
 | Term | Definition |
 |---|---|
-| [Term] | [Plain English definition — include how it is used specifically in this project] |
+| Game Guide | The in-app AI chat assistant feature (`resources/js/pages/game-guide/Chat.vue`) — players ask it about wands, spells, etc. Conversations persist and sync across sessions/devices/platforms; see docs/chat-sync-spec.md. Also the name of the real company (wand.com) this feature's take-home assignment is modeled on — their actual logo/branding was deliberately not used in this app (see docs/ARCHITECTURE_HISTORY.md context / session notes) since it's a real trademark unrelated to this project. |
+| Outbox | The client-side offline-send queue pattern in `Chat.vue` — messages are persisted to `localStorage` before being sent, and replayed in order when connectivity returns. Not a database table; purely a frontend concept (docs/chat-sync-spec.md §4.3). |
+| Idempotency key | See `client_message_id` below. |
+| Sequence number | The server-assigned integer (`messages.sequence_number`) that defines a message's authoritative position within its conversation — distinct from `messages.id` (external identity) and from `client_created_at` (a display-only timestamp hint, never authoritative for ordering). |
+| Chisel / `@chisel-*` markers | A code-stripping convention (via the `laravel/chisel` package) used by this project's scaffolding tool (`map-ai-laravel`) to mark blocks of code tied to an optional Fortify feature (e.g. `@chisel-passkeys`, `@chisel-2fa`, `@chisel-registration`). Originally meant to be mechanically stripped by an interactive installer (`artisan install:features`, documented in AGENTS.md/NEW_PROJECT.md) — that command doesn't actually exist in this installed version, so removing a feature means manually deleting everything between a marker pair (see how passkey login was removed this session — search history for `@chisel-passkeys` before it was deleted). |
+| MAP v1.0 | "Markdown for AI Processing" — the documentation framework this repo itself uses (AGENTS.md + `docs/*.md` + `docs/memory/*.md`), maintained by the `larablocks/map-ai-laravel` package. Not related to the game/product domain — it's meta, about how AI assistants maintain project docs. |
 
 ## Abbreviations
 | Abbreviation | Meaning |
 |---|---|
-| [ABC] | [Full form and what it refers to in this project] |
+| MAP | Markdown for AI Processing (see MAP v1.0 above) |
 
 ## Domain concepts
-_Keep each concept to 3-5 lines — link to external docs for deeper reference_
-[Complex concepts that affect how features should be built.
-Include business rules or constraints tied to each concept.]
+
+**Conversation / Message sync model.** A `Conversation` belongs to one player and has many `Message`s (player, assistant, or system-authored). Messages are immutable and append-only — no edit/delete path exists by design (docs/ARCHITECTURE_HISTORY.md, 2026-07-24 entry). Ordering within a conversation is authoritative via `sequence_number` (server-assigned, monotonic, per-conversation), never via timestamps. See docs/chat-sync-spec.md for the full design and docs/SCHEMA.md for the schema.
+
+**Cursor pagination direction.** `GET .../messages` with no cursor returns the *most recent* messages (descending query, reversed for display) — `meta.next_cursor` is the token for loading *older* history, not newer. This was a real bug (BUG-3, docs/BUGS_ARCHIVE.md) before being fixed; don't assume "no cursor" means "the beginning" for this endpoint.

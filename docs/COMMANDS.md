@@ -3,23 +3,6 @@ _Custom project commands — Claude-maintained, updated immediately when a comma
 _Distinct from AGENTS.md's Commands section (test/build/start) — this is the long tail of one-off and category-specific scripts_
 _Last updated: YYYY-MM-DD_
 
-## Quick index
-| Command | Category | Destructive? |
-|---|---|---|
-| `[command]` | [category] | [yes/no] |
-
-## [Category — e.g. Database]
-
-### `[command]`
-[What it does, when to use it.]
-**Destructive:** [yes — describe the blast radius, e.g. "drops and reseeds the dev database" / no]
-**Added:** YYYY-MM-DD [ticket/context if this is a one-off, e.g. "for ABC-123 data backfill — safe to remove after Q2 cleanup"]
-
-## [Category — e.g. Deployment]
-
-### `[command]`
-[What it does, when to use it.]
-**Destructive:** [yes/no]
-**Added:** YYYY-MM-DD
+_No custom one-off commands exist in this project yet. `app/Console/Commands/Utility/Test.php` (`utility:test`) is boilerplate scaffolding tied to the dead `CommandLoggerTrait`/`Logger` code (docs/CODE_PATTERNS.md anti-patterns) — not a real project command, not documented here. Add an entry here the first time an actual one-off/category-specific script is added; standard test/build/start commands stay in AGENTS.md's Commands section, not here._
 
 ---

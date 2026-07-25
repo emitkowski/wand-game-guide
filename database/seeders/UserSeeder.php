@@ -17,5 +17,14 @@ class UserSeeder extends Seeder
                 'password' => Hash::make('secret'),
             ],
         );
+
+        User::firstOrCreate(
+            ['email' => 'test@wand.com'],
+            [
+                'name'              => 'Test User',
+                'password'          => Hash::make('gameguidetest'),
+                'email_verified_at' => now(),
+            ],
+        );
     }
 }

@@ -12,8 +12,8 @@ _All suites at a glance — update after every coverage run_
 
 | Suite | Tool | Overall | Threshold | Status | Last run |
 |---|---|---|---|---|---|
-| Backend | PHPUnit | 47.5% | 80% | ✗ below threshold | 2026-07-24 |
-| Frontend | Vitest | 0% | [N]% | ○ no data | — |
+| Backend | PHPUnit | 51.0% | 80% | ✗ below threshold | 2026-07-25 |
+| Frontend | Vitest | see below | [N]% | see below | 2026-07-25 |
 
 _Remove rows that don't apply. Add rows for additional suites (e2e, contract, etc.)._
 
@@ -21,8 +21,8 @@ _Remove rows that don't apply. Add rows for additional suites (e2e, contract, et
 
 # Backend ([PHPUnit / Pest])
 
-**Suite:** 64 tests passing, 0 failing (3.51s with coverage).
-**Overall coverage:** 47.5% (PCOV, measured 2026-07-24).
+**Suite:** 72 tests passing, 0 failing (3.37s with coverage).
+**Overall coverage:** 51.0% (PCOV, measured 2026-07-25, unchanged by the BUG-1/BUG-2 fixes — `routes/` isn't in `<source>` scope, and the CI-only BUG-2 fix has no app-code coverage impact) — up from 47.5% earlier this session; the passkey-removal work incidentally brought `SecurityController`/`FortifyServiceProvider`/`Models/User` to 100% (fewer branches once the passkey code paths were deleted), and the pagination/cache/logging work added this session is fully covered.
 
 > Re-run `./vendor/bin/sail artisan test --coverage --compact` and update the % column whenever a tracked file's coverage moves ≥2 points or crosses a 100% boundary.
 
@@ -37,18 +37,20 @@ _Remove rows that don't apply. Add rows for additional suites (e2e, contract, et
 
 ## Area 1 — Chat history sync (docs/chat-sync-spec.md)
 
-_All files below are at 100% per the 2026-07-24 coverage run — they don't appear in Collision's compact report, which only lists files under 100%._
+_All files below are at 100% per the 2026-07-25 coverage run — they don't appear in Collision's compact report, which only lists files under 100%._
 
 | File | % | Status | Notes |
 |---|---|---|---|
-| `app/Actions/RecordConversationMessage.php` | 100% | `[covered]` | Idempotency, locked-counter ordering, broadcast dispatch — all exercised by `ConversationMessageTest` |
-| `app/Http/Controllers/Api/V1/ConversationMessageController.php` | 100% | `[covered]` | |
+| `app/Actions/RecordConversationMessage.php` | 100% | `[covered]` | Idempotency, locked-counter ordering, cache invalidation, structured logging, broadcast dispatch — all exercised by `ConversationMessageTest` |
+| `app/Http/Controllers/Api/V1/ConversationMessageController.php` | 100% | `[covered]` | Both the cacheable (no cursor/limit) and bypass paths exercised, including cache hit/miss |
+| `app/Http/Controllers/GameGuideController.php` | 100% | `[covered]` | `GameGuideControllerTest` |
 | `app/Http/Requests/Api/V1/StoreMessageRequest.php` | 100% | `[covered]` | Authorization path covered by the cross-user rejection test |
 | `app/Http/Requests/Api/V1/IndexMessagesRequest.php` | 100% | `[covered]` | |
 | `app/Http/Resources/MessageResource.php` | 100% | `[covered]` | |
 | `app/Models/Conversation.php`, `app/Models/Message.php` | 100% | `[covered]` | |
 | `app/Events/MessageCreated.php`, `app/Jobs/BroadcastMessageJob.php` | 100% | `[covered]` | Exercised indirectly — `QUEUE_CONNECTION=sync` in tests runs the job inline on every real (non-idempotent-replay) message creation |
-| `routes/channels.php` (`conversation.{id}` channel) | 0% | `[none]` | No test exercises broadcast channel authorization directly |
+| `app/Providers/AppServiceProvider.php` (Pennant `FeatureRetrieved` listener) | 100% | `[covered]` | Fires on every gated-route request in the existing test suite; not asserted on directly (no dedicated log-capture test) |
+| `routes/channels.php` (`conversation.{id}`, `App.Models.User.{id}` channels) | not measured (routes/ excluded from `<source>`) | `[covered]` | `tests/Feature/BroadcastAuthorizationTest.php` — hits the real `/broadcasting/auth` route with a real `reverb` connection (BUG-1's fix, formerly untested) |
 
 ## Area 2 — Pre-existing app (not touched this session)
 
@@ -66,67 +68,64 @@ _Add or remove area sections to match the project's actual code structure._
 
 ## What's left to tackle (backend)
 
-1. `routes/channels.php` conversation channel authorization has no direct test — add one asserting a non-owner is denied and the owner is allowed (would also guard against a regression of the kind logged as BUG-1 in docs/BUGS.md, which was found in the *other* channel definition in this same file).
-2. `app/Utils/ApiResponse/*` is confirmed dead code (not registered, dependency not installed) — consider deleting rather than testing.
-3. Overall app coverage (47.5%) is below this repo's 80% threshold (`.claude/rules/testing.md`) — pre-existing gap, not introduced by the chat-sync work, but worth a dedicated pass.
+1. `app/Utils/ApiResponse/*` and `app/Facades/Logger.php`/`app/Utils/Logger/*` are confirmed dead code (see docs/CODE_PATTERNS.md anti-patterns) — consider deleting rather than testing.
+2. Overall app coverage (51.0%) is below this repo's 80% threshold (`.claude/rules/testing.md`) — improved this session but still a pre-existing gap overall, worth a dedicated pass.
+3. No test directly asserts the `game_guide.*` log lines or the Pennant `FeatureRetrieved` listener's log output — behavior is exercised (100% line coverage) but the log *content* isn't asserted on. Low priority: these are observability hooks, not business logic.
 
 ---
 
 # Frontend ([Vitest / Jest])
 
-**Suite:** [N] tests passing, 0 failing ([duration with coverage]).
-**Overall coverage ([YYYY-MM-DD]):**
+**Suite:** 29 tests passing, 0 failing (2.94s with coverage).
+**Overall coverage (2026-07-25):**
 
 | Metric | % | Hits / Total |
 |---|---|---|
-| Statements | 0% | 0 / 0 |
-| Branches | 0% | 0 / 0 |
-| Functions | 0% | 0 / 0 |
-| Lines | 0% | 0 / 0 |
+| Statements | 21.13% | 145 / 686 |
+| Branches | 17.47% | 76 / 435 |
+| Functions | 14.23% | 41 / 288 |
+| Lines | 21.32% | 142 / 666 |
+
+The overall figure is low because most of the pre-existing starter-kit surface (auth pages, settings pages, layouts, most `components/`) has zero test coverage — that predates this session and isn't chat-sync related. The one file this session actually owns, `pages/game-guide/Chat.vue`, is well covered (see Area 1).
 
 ## How to run
 
 ```bash
-[run command]           # run the suite
-[coverage command]      # full coverage report
+./vendor/bin/sail npm run test              # run the suite
+./vendor/bin/sail npm run test:coverage     # full coverage report
 ```
 
 ## Coverage scope
 
-_List what is explicitly included in `[vitest/jest].config.js → coverage.include` — only measured files appear in the % above._
+No `coverage.include` allowlist is configured in `vitest.config.ts` — every `.vue`/`.ts` file under `resources/js` is measured, which is why the overall percentage is dragged down by untested starter-kit pages rather than reflecting chat-sync-specific gaps.
 
-- **Always in scope:** [e.g. composables, stores, utils] — target 100%
-- **Selectively in scope:** [e.g. components with non-trivial logic] — target load-bearing behaviours
-- **Out of scope:** [e.g. pages, layouts, app entry] — [reason]
+- **Always in scope:** all of `resources/js` (no include/exclude configured)
+- **Notable exception:** nothing is explicitly excluded; the low overall % reflects untested pre-existing pages, not missing chat-sync coverage
 
 ---
 
-## Area 1 — [e.g. Composables / pure logic]
+## Area 1 — Game Guide chat (this session)
 
 | File | % Stmts | Status | Notes |
 |---|---|---|---|
-| `[path/to/file.js]` | 0% | `[none]` | [brief note] |
+| `pages/game-guide/Chat.vue` | 80% | `[covered]` | 9 tests: initial load, Echo subscribe/unsubscribe, optimistic send + reconciliation, failed-send retry, broadcast de-dup, offline queueing, reload persistence, auto-flush on `online`, sequential ordered replay. Uncovered lines are `loadOlder()`'s scroll-position-preservation branch and one unreachable-in-tests edge of the retry path — see `Uncovered Line #s` in the raw report. |
 
-## Area 2 — [e.g. Stores]
-
-| File | % Stmts | Status | Notes |
-|---|---|---|---|
-| `[path/to/file.js]` | 0% | `[none]` | [brief note] |
-
-## Area 3 — [e.g. Components (selective)]
+## Area 2 — Pre-existing app (not touched this session)
 
 | File | % Stmts | Status | Notes |
 |---|---|---|---|
-| `[path/to/file.vue]` | 0% | `[none]` | [brief note] |
+| `components/BroadcastPing.vue` | 95% | `[covered]` | Pre-existing, unrelated to chat sync |
+| `pages/Dashboard.vue` | not separately broken out by the coverage tool grouping above; exercised by `Dashboard.test.ts` | `[partial]` | Covers the BroadcastPing tile and the Game Guide link only |
+| `pages/auth/*`, `pages/settings/*`, most of `components/`, all of `layouts/` | 0% | `[none]` | Pre-existing gap, not introduced or touched by chat-sync work |
+
+_Add or remove area sections to match the project's actual code structure._
 
 ---
 
 ## What's left to tackle (frontend)
 
-1. [Highest-priority gap]
-2. [Next gap]
-3. [Out of scope today — revisit when X]
-
+1. `pages/game-guide/Chat.vue`'s remaining uncovered branches: the `loadOlder()` scroll-position math, and one retry-path edge.
+2. The entire pre-existing starter-kit frontend (auth pages, settings pages, layouts, most components) has no tests — large, pre-existing gap unrelated to this session's work.
 ---
 
 ## Run history
@@ -134,3 +133,6 @@ _List what is explicitly included in `[vitest/jest].config.js → coverage.inclu
 | Date | Suite | Overall | Tests | Duration |
 |---|---|---|---|---|
 | 2026-07-24 | Backend (PHPUnit) | 47.5% | 64 passed | 3.51s |
+| 2026-07-25 | Backend (PHPUnit) | 51.0% | 68 passed | 3.29s |
+| 2026-07-25 | Frontend (Vitest) | 21.13% stmts | 29 passed | 2.94s |
+| 2026-07-25 | Backend (PHPUnit) | 51.0% | 72 passed | 3.37s |

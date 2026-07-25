@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@inertiajs/vue3', () => ({
     Head: { template: '<head-stub><slot /></head-stub>' },
@@ -28,10 +28,25 @@ function serverMessage(overrides: Record<string, unknown> = {}) {
     };
 }
 
+function setOnline(value: boolean) {
+    Object.defineProperty(navigator, 'onLine', {
+        value,
+        configurable: true,
+    });
+}
+
 describe('game-guide/Chat', () => {
     let listenMock: ReturnType<typeof vi.fn>;
+    // Tracked so afterEach can always unmount — Chat.vue registers a
+    // `window.addEventListener('online', ...)` in onMounted, and a wrapper
+    // left mounted across tests would leak that listener onto the shared
+    // jsdom `window`, causing later tests' `online` dispatches to also
+    // trigger earlier tests' (now-stale) flush handlers.
+    let wrapper: ReturnType<typeof mount> | undefined;
 
     beforeEach(() => {
+        localStorage.clear();
+        setOnline(true);
         listenMock = vi.fn();
         window.Echo = {
             private: vi.fn().mockReturnValue({ listen: listenMock }),
@@ -39,14 +54,21 @@ describe('game-guide/Chat', () => {
         } as unknown as Window['Echo'];
         window.axios = {
             get: vi.fn().mockResolvedValue({
-                data: { data: [], meta: { prev_cursor: null } },
+                data: { data: [], meta: { next_cursor: null } },
             }),
             post: vi.fn(),
         } as unknown as Window['axios'];
     });
 
+    afterEach(() => {
+        wrapper?.unmount();
+        wrapper = undefined;
+        localStorage.clear();
+        setOnline(true);
+    });
+
     it("subscribes to the conversation's private channel on mount and leaves it on unmount", async () => {
-        const wrapper = mount(Chat, { props: { conversationId } });
+        wrapper = mount(Chat, { props: { conversationId } });
         await flushPromises();
 
         expect(window.Echo.private).toHaveBeenCalledWith(
@@ -66,10 +88,10 @@ describe('game-guide/Chat', () => {
 
     it('loads initial message history on mount', async () => {
         window.axios.get = vi.fn().mockResolvedValue({
-            data: { data: [serverMessage()], meta: { prev_cursor: null } },
+            data: { data: [serverMessage()], meta: { next_cursor: null } },
         });
 
-        const wrapper = mount(Chat, { props: { conversationId } });
+        wrapper = mount(Chat, { props: { conversationId } });
         await flushPromises();
 
         expect(wrapper.text()).toContain('Which wand suits a Gryffindor?');
@@ -82,7 +104,7 @@ describe('game-guide/Chat', () => {
             },
         });
 
-        const wrapper = mount(Chat, { props: { conversationId } });
+        wrapper = mount(Chat, { props: { conversationId } });
         await flushPromises();
 
         await wrapper
@@ -102,6 +124,14 @@ describe('game-guide/Chat', () => {
             }),
         );
         expect(wrapper.text()).not.toContain('Failed to send');
+
+        // reconciled and cleared from the persisted outbox
+        expect(
+            JSON.parse(
+                localStorage.getItem(`game-guide:outbox:${conversationId}`) ??
+                    '[]',
+            ),
+        ).toHaveLength(0);
     });
 
     it('shows a retry option when sending fails, and clears it on a successful retry', async () => {
@@ -110,7 +140,7 @@ describe('game-guide/Chat', () => {
             .mockRejectedValueOnce(new Error('network error'))
             .mockResolvedValueOnce({ data: { data: serverMessage() } });
 
-        const wrapper = mount(Chat, { props: { conversationId } });
+        wrapper = mount(Chat, { props: { conversationId } });
         await flushPromises();
 
         await wrapper
@@ -129,7 +159,7 @@ describe('game-guide/Chat', () => {
     });
 
     it('appends a broadcast message it has not seen yet, and ignores one already present', async () => {
-        const wrapper = mount(Chat, { props: { conversationId } });
+        wrapper = mount(Chat, { props: { conversationId } });
         await flushPromises();
 
         const onMessageCreated = listenMock.mock.calls[0][1] as (
@@ -150,5 +180,109 @@ describe('game-guide/Chat', () => {
         await wrapper.vm.$nextTick();
 
         expect(wrapper.text().length).toBe(textLengthAfterFirst);
+    });
+
+    it('queues a message while offline instead of attempting to send it', async () => {
+        setOnline(false);
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        await wrapper.find('textarea').setValue('Sent while offline');
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+
+        expect(window.axios.post).not.toHaveBeenCalled();
+        expect(wrapper.text()).toContain('Queued — will send when back online');
+
+        const outbox = JSON.parse(
+            localStorage.getItem(`game-guide:outbox:${conversationId}`) ?? '[]',
+        );
+        expect(outbox).toHaveLength(1);
+        expect(outbox[0].body).toBe('Sent while offline');
+    });
+
+    it('persists a queued message across a reload (unmount/remount)', async () => {
+        setOnline(false);
+
+        const first = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        await first.find('textarea').setValue('Still here after reload');
+        await first.find('form').trigger('submit');
+        await flushPromises();
+
+        first.unmount();
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('Still here after reload');
+        expect(wrapper.text()).toContain('Queued — will send when back online');
+    });
+
+    it('automatically flushes the outbox when the browser comes back online', async () => {
+        setOnline(false);
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        await wrapper.find('textarea').setValue('Sent while offline');
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+
+        expect(window.axios.post).not.toHaveBeenCalled();
+
+        window.axios.post = vi
+            .fn()
+            .mockResolvedValue({ data: { data: serverMessage() } });
+        setOnline(true);
+        window.dispatchEvent(new Event('online'));
+        await flushPromises();
+
+        expect(window.axios.post).toHaveBeenCalledTimes(1);
+        expect(wrapper.text()).not.toContain('Queued');
+    });
+
+    it('replays multiple queued messages in order, one at a time', async () => {
+        setOnline(false);
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        await wrapper.find('textarea').setValue('First');
+        await wrapper.find('form').trigger('submit');
+        await wrapper.find('textarea').setValue('Second');
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+
+        expect(window.axios.post).not.toHaveBeenCalled();
+
+        let resolveFirst: (value: unknown) => void = () => {};
+        const firstRequest = new Promise((resolve) => {
+            resolveFirst = resolve;
+        });
+        const postMock = vi
+            .fn()
+            .mockReturnValueOnce(firstRequest)
+            .mockResolvedValueOnce({
+                data: {
+                    data: serverMessage({ id: 'server-2', body: 'Second' }),
+                },
+            });
+        window.axios.post = postMock;
+
+        setOnline(true);
+        window.dispatchEvent(new Event('online'));
+        await flushPromises();
+
+        expect(postMock).toHaveBeenCalledTimes(1);
+
+        resolveFirst({
+            data: { data: serverMessage({ id: 'server-1', body: 'First' }) },
+        });
+        await flushPromises();
+
+        expect(postMock).toHaveBeenCalledTimes(2);
     });
 });

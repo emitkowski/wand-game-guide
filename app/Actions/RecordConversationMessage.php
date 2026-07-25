@@ -6,7 +6,9 @@ use App\Jobs\BroadcastMessageJob;
 use App\Models\Conversation;
 use App\Models\Enums\SenderType;
 use App\Models\Message;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class RecordConversationMessage
 {
@@ -57,7 +59,24 @@ class RecordConversationMessage
         });
 
         if ($message->wasRecentlyCreated) {
+            Cache::forget("conversation:{$conversation->id}:recent");
+
+            Log::info('game_guide.message_recorded', [
+                'conversation_id' => $conversation->id,
+                'user_id' => $conversation->user_id,
+                'message_id' => $message->id,
+                'sequence_number' => $message->sequence_number,
+                'origin_platform' => $data['origin_platform'],
+            ]);
+
             BroadcastMessageJob::dispatch($message);
+        } else {
+            Log::info('game_guide.message_replay_deduplicated', [
+                'conversation_id' => $conversation->id,
+                'user_id' => $conversation->user_id,
+                'message_id' => $message->id,
+                'client_message_id' => $data['client_message_id'],
+            ]);
         }
 
         return $message;

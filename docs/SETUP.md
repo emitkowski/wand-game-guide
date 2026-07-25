@@ -1,77 +1,64 @@
 # SETUP.md
 _Local development setup — human-authored; Claude may propose edits, but never writes them without developer approval_
-_Last updated: YYYY-MM-DD_
+_Last updated: 2026-07-25_
 
 ## Prerequisites
 | Tool | Version | Notes |
 |---|---|---|
 | Git | 2.x+ | https://git-scm.com |
-| [AI coding tool] | latest | [install docs for your chosen tool] |
-| [Tool] | [version] | [where to get it] |
+| Claude Code | latest | This project follows the MAP v1.0 doc convention (see AGENTS.md) |
+| Docker | latest | Runs all services via Sail |
+| Node.js | 24.x | For host-side tooling; Vite itself runs inside the `vite` container |
+| mkcert | latest | For the local HTTPS cert (`docker/certs/`) |
 
 ## Initial setup
 ```bash
-# 1. Clone
-git clone [repo-url] && cd [project-name]
+# 1. Ensure the shared dev-local infra is running first
+cd ~/code/dev-local && ./dev.sh start   # nginx-proxy, postgres, redis, mailpit
 
-# 2. Fill in AGENTS.md — line 2: project name and stack; line 3: today's date
+# 2. Clone and enter this project
+git clone git@github.com:emitkowski/wand-game-guide.git
+cd wand-game-guide
 
-# 3. Initialize personal files (gitignored)
-# All of these are optional to run by hand — running install.sh/doctor.sh --fix (or
-# map-ai-laravel's map:install) already bootstraps every one of these except the
-# stack-specific rename below, and AGENTS.md's session start ritual self-creates
-# MEMORY.md, gotchas.md, and shared.md on first session if still missing, and
-# self-creates each other topic file the first time its own Load rule needs it.
-# Run these cp commands by hand only if you want to review/edit a file before your
-# first install/AI session, or want the stack-specific file renamed up front.
-cp docs/MEMORY.example.md docs/MEMORY.md
-cp docs/memory/gotchas.example.md docs/memory/gotchas.md
-cp docs/memory/framework.example.md docs/memory/[stack].md    # e.g. laravel.md; then update [stack].md ref in docs/MEMORY.md — not auto-bootstrapped, needs this rename
-cp docs/memory/database.example.md docs/memory/database.md
-cp docs/memory/testing.example.md docs/memory/testing.md
-cp docs/memory/environment.example.md docs/memory/environment.md
-cp docs/memory/performance.example.md docs/memory/performance.md
-cp docs/memory/agents.example.md docs/memory/agents.md  # skip if no agent pipeline
-
-# 3b. Initialize shared team files (committed to repo — not gitignored)
-cp docs/memory/shared.example.md docs/memory/shared.md
-
-# 4. Install dependencies
-[install command]
-
-# 5. Configure environment
-# First: create .env.example in your project with all required key names (not in this template)
+# 3. Environment
 cp .env.example .env
 
-# 6. Start services, migrate, seed
-docker compose up -d
-[migration command]
-[seed command]  # if required
+# 4. Start services
+./vendor/bin/sail up -d
+./vendor/bin/sail artisan key:generate
+
+# 5. Database
+./vendor/bin/sail artisan migrate --seed
+# seeds two accounts: eric.mitkowski@gmail.com / secret, and test@wand.com / gameguidetest
+
+# 6. Frontend
+./vendor/bin/sail npm install
+./vendor/bin/sail npm run build     # or `npm run dev` for HMR
 ```
 
 ## Environment configuration
 | Variable | Required | Default | Notes |
 |---|---|---|---|
-| [VAR] | yes/no | [default] | [what needs a real value] |
+| APP_DOMAIN | yes | wand-game-guide.test | Must resolve via the shared proxy's hosts entry |
+| VITE_PORT | yes | 5180 | Must be unique across all projects sharing the dev-local proxy |
+| REVERB_PORT | yes | 8085 | Same uniqueness requirement |
+| DB_* | yes | — | Points at the shared `postgres-shared` container, not a per-project DB container |
 
 ## Verify setup
-[Specific URLs or commands to confirm everything is working.
-Expected output included.]
-
-## Verify tooling
-Run all commands from the Commands section in AGENTS.md — each should complete without errors.
-If any fail, fix before starting development.
+- `https://wand-game-guide.test` redirects to `/login` (not a 404/connection error)
+- Log in with the seeded test account, land on the dashboard
+- Click "Game Guide," send a message, see it appear
+- `./vendor/bin/sail artisan test --compact` passes
 
 ## Common setup failures
 | Symptom | Cause | Fix |
 |---|---|---|
-| [Error] | [Why it happens] | [How to fix it] |
+| Browser cert warning on wand-game-guide.test | mkcert cert missing/not trusted | Regenerate via dev-local's cert tooling |
+| Domain doesn't resolve at all | Shared nginx-proxy not running | `cd ~/code/dev-local && ./dev.sh start` first |
+| `install:features` command not found | Documented in AGENTS.md but doesn't exist in this installed version | Known gap — feature toggling (e.g. removing passkeys) is currently done by manually deleting `@chisel-*`-marked code, see docs/GLOSSARY.md |
 
 ## Development tools
-[PhpStorm config, Xdebug setup, any project-specific tooling.]
+No project-specific PhpStorm/Xdebug configuration beyond Sail's built-in Xdebug support (`SAIL_XDEBUG_MODE` env var).
 
 ## Ready to start
-Setup is complete when:
-- All services start without errors
-- All tooling commands pass
-- AI agent reads AGENTS.md on first prompt (start a session and type anything to verify)
+Setup is complete when all four "Verify setup" items pass.
