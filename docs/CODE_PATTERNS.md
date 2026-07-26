@@ -18,11 +18,10 @@ _Project-specific only — not general conventions_
 
 ## Cross-cutting concerns
 
-**Logging:** `Illuminate\Support\Facades\Log` with a dotted, namespaced event name as the message (`game_guide.message_recorded`, not a free-text sentence) and structured context array carrying correlation IDs (`conversation_id`, `user_id`, and whatever else identifies the request — `origin_platform`, `cache` hit/miss/bypass, etc.). Not `App\Facades\Logger` (dead scaffolding, see Anti-patterns). See `App\Actions\RecordConversationMessage` and `App\Http\Controllers\Api\V1\ConversationMessageController` for the pattern, and `App\Providers\AppServiceProvider::boot()` for listening to a package event (Pennant's `FeatureRetrieved`) to log something the app itself doesn't directly control.
+**Logging:** `Illuminate\Support\Facades\Log` with a dotted, namespaced event name as the message (`game_guide.message_recorded`, not a free-text sentence) and structured context array carrying correlation IDs (`conversation_id`, `user_id`, and whatever else identifies the request — `origin_platform`, `cache` hit/miss/bypass, etc.). See `App\Actions\RecordConversationMessage` and `App\Http\Controllers\Api\V1\ConversationMessageController` for the pattern, and `App\Providers\AppServiceProvider::boot()` for listening to a package event (Pennant's `FeatureRetrieved`) to log something the app itself doesn't directly control.
 
 ## Anti-patterns — do not replicate
-- `app/Utils/ApiResponse/` — a Fractal-based response formatter. Dead code: `league/fractal` isn't installed and its `ResponseServiceProvider` is never registered. Do not build new API responses on it; use standard `Illuminate\Http\Resources\Json\JsonResource` instead (see below).
-- `App\Facades\Logger` / `app/Utils/Logger/*` (`MyLogger`, `CommandLoggerTrait`, `UtilLoggerTrait`) — dead scaffolding: 0% test coverage, zero call sites anywhere in `app/`. Use Laravel's standard `Illuminate\Support\Facades\Log` instead (see `App\Actions\RecordConversationMessage` and `App\Http\Controllers\Api\V1\ConversationMessageController` for the structured-logging pattern this app actually uses).
+_Previously documented here: `app/Utils/ApiResponse/*` (a never-registered Fractal-based response formatter) and `App\Facades\Logger`/`app/Utils/Logger/*` (a logging facade with zero call sites anywhere in `app/`). Both were confirmed dead scaffolding — not just unused but entirely unreferenced — and were deleted outright on 2026-07-25 rather than left as a "don't use this" warning, along with `app/Models/Traits/Activable.php` and `app/functions.php` (also zero call sites) and the `app/Console/Commands/CommandAbstract.php`/`Utility/Test.php` pair that depended on the deleted Logger trait. See docs/ARCHITECTURE_HISTORY.md's 2026-07-25 entry and docs/TESTING_COVERAGE.md. Use `Illuminate\Http\Resources\Json\JsonResource` for API responses and `Illuminate\Support\Facades\Log` for logging — both already this app's real, live convention (see Cross-cutting concerns above and the pattern below)._
 
 ---
 
@@ -61,5 +60,33 @@ _Project-specific only — not general conventions_
 **Pattern:** A counter column on the owner row (e.g. `conversations.last_sequence_number`), incremented inside a transaction with `lockForUpdate()` on that one owner row, and the new value stamped onto the child row being created. Serializes writes only within that owner's scope, not globally.
 **Anti-pattern:** DB identity/auto-increment columns as the ordering signal when the app also needs to run against a DB backend that doesn't support them the same way (e.g. this project's SQLite test DB vs Postgres in production) — the app-level counter behaves identically on both.
 **Example:** `app/Actions/RecordConversationMessage.php`.
+
+### External AI/LLM calls happen in a queued job, never inline in the request
+**Context:** Any feature where a request needs an AI-generated response (e.g. Game Guide's assistant reply) — as opposed to a request that just needs to persist something the caller already has.
+**Pattern:** The write that triggers generation (e.g. recording a player message) dispatches a queued Job (`app/Jobs/`); the Job resolves an Action (`app/Actions/`) that calls the external API via a small service class (`app/Services/`) and persists the result through the same writer the synchronous path uses (`RecordConversationMessage::recordAssistantReply()`, not a second insert path). The client learns about the result via the existing Reverb broadcast, not by blocking the original request. Gate the job's dispatch behind its own Pennant flag, independent of whatever flag gates the underlying feature — so the AI call specifically can be killed (cost incident, provider outage) without taking down message sync itself.
+**Anti-pattern:** Calling the AI API synchronously inside the controller/request — ties the player's own message-send latency (and failure modes) to a third-party API's, when the two are logically independent writes.
+**Example:** `app/Jobs/GenerateGameGuideReplyJob.php` → `app/Actions/GenerateGameGuideReply.php` → `app/Services/AnthropicService.php`, dispatched from `RecordConversationMessage::record()`, gated by the `game-guide-ai-replies` flag (docs/FEATURE_FLAGS.md).
+
+### Testing pages built on Inertia's `<Form>` component
+**Context:** Any Vue page/component using `<Form v-bind="someAction.form()" v-slot="{ errors, processing }">` (nearly every auth/settings page in this app) — real `<Form>` makes a live network request on submit and needs a fully-booted Inertia router, neither of which exist in a Vitest/jsdom unit test.
+**Pattern:** `resources/js/test-support/formStub.ts` exports `createFormStub(state)` — a fake `Form` component that renders a plain `<form>` (submit prevented) and forwards the default slot with a controllable `{ errors, processing }`. Wire it up per test file with `vi.hoisted()` so the mutable state object is available inside the (hoisted) `vi.mock('@inertiajs/vue3', ...)` factory:
+```ts
+const formTestState = vi.hoisted(() => ({ errors: {}, processing: false }));
+vi.mock('@inertiajs/vue3', async () => {
+    const { createFormStub } = await import('@/test-support/formStub');
+    return { Head: {...}, Link: {...}, Form: createFormStub(formTestState) };
+});
+beforeEach(() => Object.assign(formTestState, { errors: {}, processing: false }));
+// then per-test: formTestState.errors = { email: '...' };
+```
+Do **not** spread `...actual` from `importOriginal()` into the `@inertiajs/vue3` mock — Inertia's real `Link`/`router` throw (`Invalid URL` inside `mergeDataIntoQueryString`) outside a real booted Inertia app; provide only the specific named exports each page actually uses (`Head`, `Link`, `Form`, `usePage`, `setLayoutProps`, ...).
+**Anti-pattern:** Mounting the real `<Form>`/`<Link>` and hoping the test environment tolerates it — it doesn't (see above). Also don't reach for a heavier tool (a real Inertia test harness, MSW) when this app's forms don't need one — every field/error/processing-state assertion is achievable through the slot state alone.
+**Example:** `resources/js/pages/auth/__tests__/Login.test.ts` and every other `pages/auth|settings/__tests__/*.test.ts` file.
+
+### jsdom API gaps in `resources/js/test-setup.ts`
+**Context:** Mounting a component that uses a browser API jsdom doesn't implement — the failure is always a runtime `ReferenceError`/`TypeError` from deep inside a third-party library (Reka UI, `vue-input-otp`), not from this app's own code, which makes the fix easy to misdiagnose as a component bug.
+**Pattern:** Add a minimal polyfill/stub to the shared `resources/js/test-setup.ts` (already has `HTMLDialogElement`, `matchMedia`) rather than per-test-file — these are environment gaps, not test-specific concerns. Known gaps hit so far: `Element.prototype.scrollIntoView` (used by `TwoFactorRecoveryCodes.vue`), `ResizeObserver` (used by `vue-input-otp`, the OTP input on the two-factor challenge/setup pages).
+**Anti-pattern:** Mocking the gap inside individual test files — every other test that happens to mount the same child component (e.g. any page rendering `PasswordInput` or an OTP field) hits the identical failure and needs the identical fix; one shared polyfill avoids N copies of it.
+**Example:** `resources/js/test-setup.ts`.
 
 <!-- Review and remove obvious patterns when file exceeds 150 lines -->

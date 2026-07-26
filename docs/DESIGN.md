@@ -31,10 +31,10 @@ Full token set lives in `resources/css/app.css` (CSS custom properties) — don'
 Single font family, "Instrument Sans," for everything — no separate heading font. Page titles: `text-lg font-semibold`. Secondary/description text: `text-sm text-muted-foreground`.
 
 ## Layout
-Sidebar-based app shell (`layouts/app/AppSidebarLayout.vue`) for authenticated pages. Single-purpose focused pages (like the chat) constrain to a centered, narrow column (`mx-auto max-w-2xl`) rather than stretching full-width — deliberate for readability on a conversational UI.
+Sidebar-based app shell (`layouts/app/AppSidebarLayout.vue`) for authenticated pages. Single-purpose focused pages (like the chat) use a wide `mx-auto max-w-7xl` layout with an elevated `shadow-xl` card, matching the sibling `advisor` project's chat structure — not a constrained narrow column (an earlier `max-w-2xl` version was tried first but replaced 2026-07-25 per developer direction to match `advisor`'s look and feel). Page-height panels (the chat card) are sized with an explicit `h-[calc(100dvh-4rem)] md:h-[calc(100dvh-5rem)]` rather than `h-full`, since nothing in the shared `SidebarProvider`/`SidebarInset` chain establishes a definite height for `h-full`/`flex-1` to resolve against (`SidebarProvider` only guarantees `min-h-svh`) — the `md:` breakpoint doubles as the offset for the `m-2` margin the "inset" sidebar variant (`AppSidebar.vue`) adds to `<main>` at that breakpoint. Anchoring to the viewport this way keeps the page itself from ever scrolling, so only the message list scrolls internally.
 
 ## Elevation & Depth
-Minimal — a single `shadow-sm` on the chat panel card is currently the only deliberate elevation in the app. No z-index scale defined yet (nothing currently stacks/overlaps beyond shadcn's own dialog/dropdown primitives, which manage their own layering).
+A `shadow-xl` on the chat panel card (no border) is the primary deliberate elevation in the app, following the wide/elevated-card layout above. No z-index scale defined yet (nothing currently stacks/overlaps beyond shadcn's own dialog/dropdown primitives, which manage their own layering).
 
 ## Shapes
 Base radius 0.5rem (`--radius` in `resources/css/app.css`). Panels/cards: `rounded-xl`. Chat bubbles: `rounded-2xl` with one corner squared off (`rounded-br-sm` for the sender's side) for an iMessage-style tail. Pill-shaped inputs/icon buttons: `rounded-full` (the chat composer).

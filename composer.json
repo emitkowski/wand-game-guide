@@ -2,7 +2,7 @@
     "$schema": "https://getcomposer.org/schema.json",
     "name": "wand-game-guide/wand-game-guide",
     "type": "project",
-    "description": "Harry Potter wand & spell guide app (job sample project)",
+    "description": "In-game AI companion app for PC games (job sample project)",
     "keywords": ["laravel", "framework"],
     "license": "MIT",
     "require": {
@@ -29,9 +29,6 @@
         "phpunit/phpunit": "^13.0"
     },
     "autoload": {
-        "files": [
-            "app/functions.php"
-        ],
         "psr-4": {
             "App\\": "app/",
             "Database\\Factories\\": "database/factories/",

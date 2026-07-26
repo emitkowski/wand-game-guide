@@ -31,6 +31,12 @@ class AppServiceProvider extends ServiceProvider
         // percentage-based Lottery per docs/chat-sync-spec.md's phased plan.
         Feature::define('chat-history-sync', fn () => true);
 
+        // Kill switch for Game Guide's AI-generated replies — lets the reply
+        // pipeline be disabled independently of chat-history-sync itself
+        // (e.g. during an Anthropic outage or a cost incident) without
+        // taking down message sync/history.
+        Feature::define('game-guide-ai-replies', fn () => true);
+
         // Real hook for the rollout dashboards described in docs/chat-sync-spec.md §7 —
         // every check of the flag is logged with its resolved value and scope.
         Event::listen(function (FeatureRetrieved $event) {

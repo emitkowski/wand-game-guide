@@ -32,7 +32,7 @@ defineOptions({
                 <div>
                     <p class="font-semibold">Game Guide</p>
                     <p class="text-sm text-muted-foreground">
-                        Ask about wands, spells, and more
+                        Tips, strategies, and answers when you're stuck
                     </p>
                 </div>
             </Link>

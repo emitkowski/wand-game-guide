@@ -46,8 +46,39 @@ const loadingOlder = ref(false);
 const draft = ref('');
 const flushing = ref(false);
 const scrollContainer = ref<HTMLElement | null>(null);
+const pendingReplyCount = ref(0);
 
 const outboxKey = `game-guide:outbox:${props.conversationId}`;
+
+// Game Guide's reply arrives asynchronously (queued job + broadcast, see
+// docs/ARCHITECTURE_HISTORY.md's 2026-07-25 AI-reply entry) — there's no
+// explicit "reply failed" signal pushed to the client, so each "thinking"
+// indicator clears itself after a timeout as a fallback if no assistant
+// message ever shows up (e.g. the Anthropic call errored server-side).
+const REPLY_TIMEOUT_MS = 30_000;
+let replyTimeouts: ReturnType<typeof setTimeout>[] = [];
+
+function awaitReply() {
+    pendingReplyCount.value++;
+    scrollToBottom();
+    replyTimeouts.push(
+        setTimeout(() => {
+            pendingReplyCount.value = Math.max(0, pendingReplyCount.value - 1);
+        }, REPLY_TIMEOUT_MS),
+    );
+}
+
+function receivedReply() {
+    if (pendingReplyCount.value > 0) {
+        pendingReplyCount.value--;
+    }
+
+    const timeout = replyTimeouts.shift();
+
+    if (timeout) {
+        clearTimeout(timeout);
+    }
+}
 
 function loadOutbox(): OutboxEntry[] {
     try {
@@ -89,6 +120,17 @@ async function loadInitial() {
     );
     messages.value = data.data;
     olderCursor.value = data.meta?.next_cursor ?? null;
+
+    // Heuristic for "still thinking" across a reload: if the newest loaded
+    // message is player-authored, an assistant reply is presumably still in
+    // flight (or failed silently) — show the indicator until either a reply
+    // arrives or the timeout above clears it.
+    const newest = messages.value[messages.value.length - 1];
+
+    if (newest?.sender_type === 'player') {
+        awaitReply();
+    }
+
     await scrollToBottom();
 }
 
@@ -174,7 +216,7 @@ async function flushOutbox() {
             }
 
             try {
-                const { data } = await window.axios.post(
+                const response = await window.axios.post(
                     ConversationMessageController.store.url(
                         props.conversationId,
                     ),
@@ -184,6 +226,7 @@ async function flushOutbox() {
                         origin_platform: entry.originPlatform,
                     },
                 );
+                const { data } = response;
 
                 removeFromOutbox(entry.clientMessageId);
 
@@ -193,6 +236,15 @@ async function flushOutbox() {
 
                 if (index !== -1) {
                     messages.value[index] = { ...data.data, status: 'sent' };
+                }
+
+                // A 200 (not 201) means this was an idempotent replay of an
+                // already-recorded message — no new Game Guide reply job was
+                // dispatched for it server-side (RecordConversationMessage
+                // only does that for genuinely new messages), so don't show
+                // a "thinking" indicator that would never resolve on its own.
+                if (response.status === 201) {
+                    awaitReply();
                 }
             } catch {
                 if (message) {
@@ -264,6 +316,11 @@ onMounted(async () => {
         (event: Message) => {
             if (!messages.value.some((m) => m.id === event.id)) {
                 messages.value.push(event);
+
+                if (event.sender_type === 'assistant') {
+                    receivedReply();
+                }
+
                 scrollToBottom();
             }
         },
@@ -275,24 +332,28 @@ onMounted(async () => {
 onUnmounted(() => {
     window.Echo.leaveChannel(`conversation.${props.conversationId}`);
     window.removeEventListener('online', flushOutbox);
+    replyTimeouts.forEach(clearTimeout);
+    replyTimeouts = [];
 });
 </script>
 
 <template>
     <Head title="Game Guide" />
 
-    <div class="mx-auto flex h-full w-full max-w-2xl flex-1 flex-col p-4">
-        <div class="mb-4">
+    <div
+        class="mx-auto flex h-[calc(100dvh-4rem)] w-full max-w-7xl flex-col p-4 sm:p-6 md:h-[calc(100dvh-5rem)] lg:p-8"
+    >
+        <div class="mb-4 shrink-0">
             <h1 class="text-lg font-semibold">Game Guide</h1>
             <p class="text-sm text-muted-foreground">
-                Ask about wands, spells, houses, and anything else you want to
-                know about the wizarding world — Game Guide remembers your
-                conversation across sessions and devices.
+                Ask for tips, boss strategies, item locations, or anything
+                else you're stuck on — Game Guide remembers your conversation
+                across sessions and devices.
             </p>
         </div>
 
         <div
-            class="flex flex-1 flex-col overflow-hidden rounded-xl border border-sidebar-border bg-background shadow-sm"
+            class="flex flex-1 flex-col overflow-hidden rounded-xl bg-background shadow-xl"
         >
             <div
                 ref="scrollContainer"
@@ -366,6 +427,32 @@ onUnmounted(() => {
                                 </button>
                             </template>
                         </div>
+                    </div>
+                </div>
+
+                <div
+                    v-if="pendingReplyCount > 0"
+                    data-testid="game-guide-thinking"
+                    class="flex items-end justify-start gap-2"
+                >
+                    <div
+                        class="flex size-7 shrink-0 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground"
+                    >
+                        <Sparkles class="size-4" />
+                    </div>
+
+                    <div
+                        class="flex items-center gap-1 rounded-2xl rounded-bl-sm bg-muted px-4 py-3"
+                    >
+                        <span
+                            class="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]"
+                        />
+                        <span
+                            class="size-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]"
+                        />
+                        <span
+                            class="size-1.5 animate-bounce rounded-full bg-muted-foreground"
+                        />
                     </div>
                 </div>
             </div>

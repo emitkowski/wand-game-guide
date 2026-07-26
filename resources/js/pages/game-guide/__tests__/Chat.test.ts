@@ -65,7 +65,12 @@ describe('game-guide/Chat', () => {
         wrapper = undefined;
         localStorage.clear();
         setOnline(true);
+        vi.useRealTimers();
     });
+
+    function thinkingIndicator() {
+        return wrapper!.find('[data-testid="game-guide-thinking"]');
+    }
 
     it("subscribes to the conversation's private channel on mount and leaves it on unmount", async () => {
         wrapper = mount(Chat, { props: { conversationId } });
@@ -284,5 +289,106 @@ describe('game-guide/Chat', () => {
         await flushPromises();
 
         expect(postMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("shows a thinking indicator after sending a message, and clears it when Game Guide's reply broadcasts in", async () => {
+        window.axios.post = vi.fn().mockResolvedValue({
+            status: 201,
+            data: { data: serverMessage({ id: 'server-id-2' }) },
+        });
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        expect(thinkingIndicator().exists()).toBe(false);
+
+        await wrapper
+            .find('textarea')
+            .setValue('Which wand suits a Gryffindor?');
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+
+        expect(thinkingIndicator().exists()).toBe(true);
+
+        const onMessageCreated = listenMock.mock.calls[0][1] as (
+            message: unknown,
+        ) => void;
+        onMessageCreated(
+            serverMessage({ id: 'reply-1', sender_type: 'assistant' }),
+        );
+        await wrapper.vm.$nextTick();
+
+        expect(thinkingIndicator().exists()).toBe(false);
+    });
+
+    it('does not show a thinking indicator for an idempotent replay (200 response)', async () => {
+        window.axios.post = vi.fn().mockResolvedValue({
+            status: 200,
+            data: { data: serverMessage() },
+        });
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        await wrapper
+            .find('textarea')
+            .setValue('Which wand suits a Gryffindor?');
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+
+        expect(thinkingIndicator().exists()).toBe(false);
+    });
+
+    it('clears the thinking indicator on its own if no reply arrives within the timeout', async () => {
+        vi.useFakeTimers();
+
+        window.axios.post = vi.fn().mockResolvedValue({
+            status: 201,
+            data: { data: serverMessage({ id: 'server-id-2' }) },
+        });
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        await wrapper
+            .find('textarea')
+            .setValue('Which wand suits a Gryffindor?');
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+
+        expect(thinkingIndicator().exists()).toBe(true);
+
+        await vi.advanceTimersByTimeAsync(30_000);
+        await wrapper.vm.$nextTick();
+
+        expect(thinkingIndicator().exists()).toBe(false);
+    });
+
+    it('shows a thinking indicator on load when the most recent message is still an unanswered player message', async () => {
+        window.axios.get = vi.fn().mockResolvedValue({
+            data: {
+                data: [serverMessage({ sender_type: 'player' })],
+                meta: { next_cursor: null },
+            },
+        });
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        expect(thinkingIndicator().exists()).toBe(true);
+    });
+
+    it('does not show a thinking indicator on load when the most recent message already has an assistant reply', async () => {
+        window.axios.get = vi.fn().mockResolvedValue({
+            data: {
+                data: [serverMessage({ sender_type: 'assistant' })],
+                meta: { next_cursor: null },
+            },
+        });
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        expect(thinkingIndicator().exists()).toBe(false);
     });
 });

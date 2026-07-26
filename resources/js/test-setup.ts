@@ -41,6 +41,22 @@ if (typeof HTMLDialogElement !== 'undefined') {
     HTMLDialogElement.prototype.close = vi.fn();
 }
 
+// jsdom doesn't implement Element.scrollIntoView
+if (typeof Element !== 'undefined' && !Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = vi.fn();
+}
+
+// jsdom doesn't implement ResizeObserver — needed by vue-input-otp (the OTP
+// input used on the two-factor challenge and setup-modal pages)
+if (typeof ResizeObserver === 'undefined') {
+    (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver =
+        class ResizeObserver {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        };
+}
+
 // jsdom doesn't implement matchMedia
 Object.defineProperty(window, 'matchMedia', {
     writable: true,
