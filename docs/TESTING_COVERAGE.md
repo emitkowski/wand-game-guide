@@ -12,7 +12,7 @@ _All suites at a glance — update after every coverage run_
 
 | Suite | Tool | Overall | Threshold | Status | Last run |
 |---|---|---|---|---|---|
-| Backend | PHPUnit | 100.0% | 80% | ✓ above threshold | 2026-07-25 |
+| Backend | PHPUnit | 100.0% | 80% | ✓ above threshold | 2026-07-26 |
 | Frontend | Vitest | 90.83% stmts | 80% | ✓ above threshold | 2026-07-25 |
 
 _Remove rows that don't apply. Add rows for additional suites (e2e, contract, etc.)._
@@ -21,7 +21,7 @@ _Remove rows that don't apply. Add rows for additional suites (e2e, contract, et
 
 # Backend ([PHPUnit / Pest])
 
-**Suite:** 85 tests passing, 0 failing (3.70s with coverage).
+**Suite:** 86 tests passing, 0 failing (3.90s with coverage). Up from 85 after BUG-4's fix un-skipped its lock-in test (`GenerateGameGuideReplyTest::test_reply_generation_never_sends_a_trailing_assistant_turn_to_claude`), which now passes for real — see docs/BUGS_ARCHIVE.md's 2026-07-26 entry. Same-day fix for BUG-5 (phpunit.xml's `LOG_CHANNEL=null`/`BROADCAST_CONNECTION=null` were silently coerced to PHP `null` by Laravel's `env()` helper, causing every run to hit Laravel's log emergency-fallback invisibly) didn't change the test count, but eliminated ~22 silent lines written to `storage/logs/laravel.log` on every single run.
 **Overall coverage:** 100.0% (PCOV, measured 2026-07-25) — up from 57.9% the same session. The jump wasn't from writing more tests against existing code; it was from deleting ~10 files of confirmed-dead scaffolding (`app/Utils/ApiResponse/*`, `app/Facades/Logger.php`, `app/Utils/Logger/*`, `app/Providers/LoggerServiceProvider.php`, `app/Models/Traits/Activable.php`, `app/functions.php`, `app/Console/Commands/CommandAbstract.php` + its only subclass `Utility/Test.php`) that had zero call sites anywhere in the app and was dragging the denominator down — see docs/ARCHITECTURE_HISTORY.md's 2026-07-25 entry. The one genuine remaining gap (`app/Jobs/BroadcastPingJob.php`, previously 50%) got a real new test (`tests/Unit/Jobs/BroadcastPingJobTest.php`) asserting `handle()` actually dispatches the `BroadcastPing` event — the existing `BroadcastPingTest` only ever asserted the job was *queued* (`Queue::fake()`), never that its `handle()` method does the right thing.
 
 > Re-run `./vendor/bin/sail artisan test --coverage --compact` and update the % column whenever a tracked file's coverage moves ≥2 points or crosses a 100% boundary.
@@ -173,3 +173,6 @@ Up from 23.69% stmts earlier the same day — 43 new test files were added cover
 | 2026-07-25 | Frontend (Vitest) | 23.69% stmts | 34 passed | 2.27s |
 | 2026-07-25 | Backend (PHPUnit) | 100.0% | 85 passed | 3.70s |
 | 2026-07-25 | Frontend (Vitest) | 90.83% stmts | 219 passed | ~17s |
+| 2026-07-26 | Backend (PHPUnit) | 100.0% | 86 passed | 3.72s |
+| 2026-07-26 | Backend (PHPUnit) | 100.0% | 86 passed | 3.90s (post BUG-5 fix) |
+| 2026-07-26 | Backend (PHPUnit) | 100.0% | 86 passed | 3.95s (post telemetry/error channel split) |

@@ -41,7 +41,7 @@ class AppServiceProvider extends ServiceProvider
         // every check of the flag is logged with its resolved value and scope.
         Event::listen(function (FeatureRetrieved $event) {
             if ($event->feature === 'chat-history-sync') {
-                Log::info('game_guide.feature_flag_exposure', [
+                Log::channel('game_guide_telemetry')->info('game_guide.feature_flag_exposure', [
                     'feature' => $event->feature,
                     'value' => $event->value,
                     'user_id' => $event->scope?->id,

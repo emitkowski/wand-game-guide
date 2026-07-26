@@ -23,10 +23,11 @@ class GenerateGameGuideReplyTest extends TestCase
         $user = User::factory()->create();
         $conversation = Conversation::factory()->for($user)->create();
 
-        Message::factory()->for($conversation)->create([
+        $triggeringMessage = Message::factory()->for($conversation)->create([
             'sender_type' => SenderType::Player,
             'body' => 'What wand should I get?',
             'sequence_number' => 1,
+            'origin_platform' => OriginPlatform::Web,
         ]);
         $conversation->forceFill(['last_sequence_number' => 1])->save();
 
@@ -42,7 +43,7 @@ class GenerateGameGuideReplyTest extends TestCase
 
         Cache::put("conversation:{$conversation->id}:recent", ['stale' => true]);
 
-        $message = app(GenerateGameGuideReply::class)->generate($conversation, OriginPlatform::Web);
+        $message = app(GenerateGameGuideReply::class)->generate($triggeringMessage);
 
         $this->assertSame(SenderType::Assistant, $message->sender_type);
         $this->assertSame('A holly wand suits you well.', $message->body);
@@ -76,10 +77,11 @@ class GenerateGameGuideReplyTest extends TestCase
             'body' => 'A system note that should never reach Claude',
             'sequence_number' => 3,
         ]);
-        Message::factory()->for($conversation)->create([
+        $triggeringMessage = Message::factory()->for($conversation)->create([
             'sender_type' => SenderType::Player,
             'body' => 'Follow-up question',
             'sequence_number' => 4,
+            'origin_platform' => OriginPlatform::Desktop,
         ]);
         $conversation->forceFill(['last_sequence_number' => 4])->save();
 
@@ -94,6 +96,40 @@ class GenerateGameGuideReplyTest extends TestCase
             ->andReturn('An answer');
         $this->app->instance(AnthropicService::class, $claude);
 
-        app(GenerateGameGuideReply::class)->generate($conversation, OriginPlatform::Desktop);
+        app(GenerateGameGuideReply::class)->generate($triggeringMessage);
+    }
+
+    public function test_reply_generation_never_sends_a_trailing_assistant_turn_to_claude(): void
+    {
+        // BUG-4 (docs/BUGS_ARCHIVE.md): a job dispatched for an earlier player
+        // message that runs *after* another job has already persisted a
+        // later assistant reply — simulating two GenerateGameGuideReplyJob
+        // instances executing out of order under bursty send volume.
+        $user = User::factory()->create();
+        $conversation = Conversation::factory()->for($user)->create();
+
+        $triggeringMessage = Message::factory()->for($conversation)->create([
+            'sender_type' => SenderType::Player,
+            'body' => 'First question',
+            'sequence_number' => 1,
+            'origin_platform' => OriginPlatform::Web,
+        ]);
+        Message::factory()->for($conversation)->create([
+            'sender_type' => SenderType::Assistant,
+            'body' => 'Already-answered reply from a job that ran first',
+            'sequence_number' => 2,
+        ]);
+        $conversation->forceFill(['last_sequence_number' => 2])->save();
+
+        $claude = Mockery::mock(AnthropicService::class);
+        $claude->shouldReceive('complete')
+            ->once()
+            ->withArgs(function (string $systemPrompt, array $messages) {
+                return $messages === [['role' => 'user', 'content' => 'First question']];
+            })
+            ->andReturn('A reply');
+        $this->app->instance(AnthropicService::class, $claude);
+
+        app(GenerateGameGuideReply::class)->generate($triggeringMessage);
     }
 }

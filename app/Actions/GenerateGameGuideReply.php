@@ -2,8 +2,6 @@
 
 namespace App\Actions;
 
-use App\Models\Conversation;
-use App\Models\Enums\OriginPlatform;
 use App\Models\Enums\SenderType;
 use App\Models\Message;
 use App\Services\AnthropicService;
@@ -50,10 +48,29 @@ PROMPT;
         private readonly RecordConversationMessage $recorder,
     ) {}
 
-    public function generate(Conversation $conversation, OriginPlatform $originPlatform): Message
+    /**
+     * Generate and persist Game Guide's reply to one specific player message.
+     *
+     * The thread-history window is anchored to $triggeringMessage's own
+     * sequence_number (`<=`), not "whatever the conversation's current tail
+     * is" — one GenerateGameGuideReplyJob is dispatched per player message,
+     * and under bursty send volume those jobs can execute out of order
+     * relative to when their triggering message was created. Querying the
+     * live tail let a later-running job see another job's already-persisted
+     * assistant reply as the newest message, ending the window in an
+     * `assistant` turn — which Anthropic's API rejects outright ("the
+     * conversation must end with a user message"). Anchoring to this job's
+     * own message guarantees the window always ends with the exact user
+     * turn it was dispatched to answer, regardless of what other jobs have
+     * done since. See BUG-4, docs/BUGS_ARCHIVE.md.
+     */
+    public function generate(Message $triggeringMessage): Message
     {
+        $conversation = $triggeringMessage->conversation;
+
         $messages = $conversation->messages()
             ->whereIn('sender_type', [SenderType::Player, SenderType::Assistant])
+            ->where('sequence_number', '<=', $triggeringMessage->sequence_number)
             ->orderByDesc('sequence_number')
             ->limit(config('game_guide.max_thread_messages', 30))
             ->get()
@@ -65,13 +82,17 @@ PROMPT;
             ])
             ->all();
 
+        $startedAt = microtime(true);
         $reply = $this->claude->complete(self::SYSTEM_PROMPT, $messages);
+        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
 
-        Log::info('game_guide.assistant_reply_generated', [
+        Log::channel('game_guide_telemetry')->info('game_guide.assistant_reply_generated', [
             'conversation_id' => $conversation->id,
             'user_id' => $conversation->user_id,
+            'thread_message_count' => count($messages),
+            'anthropic_duration_ms' => $durationMs,
         ]);
 
-        return $this->recorder->recordAssistantReply($conversation, $reply, $originPlatform);
+        return $this->recorder->recordAssistantReply($conversation, $reply, $triggeringMessage->origin_platform);
     }
 }

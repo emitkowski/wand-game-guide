@@ -47,6 +47,8 @@ class AnthropicService
         if ($response->failed()) {
             Log::error('game_guide.anthropic_api_error', [
                 'status' => $response->status(),
+                'error_type' => $response->json('error.type'),
+                'error_message' => $response->json('error.message'),
             ]);
 
             throw new RuntimeException('Anthropic API request failed.');

@@ -32,13 +32,15 @@ class ConversationMessageController extends Controller
      */
     public function index(IndexMessagesRequest $request, Conversation $conversation): JsonResponse
     {
+        $startedAt = microtime(true);
         $limit = $request->integer('limit', 50);
         $cacheable = ! $request->has('cursor') && ! $request->has('limit');
 
         if (! $cacheable) {
-            $this->logSync($conversation, $request, 'bypass');
+            $response = $this->paginatedMessages($conversation, $limit);
+            $this->logSync($conversation, $request, 'bypass', $startedAt);
 
-            return $this->paginatedMessages($conversation, $limit);
+            return $response;
         }
 
         $cacheKey = "conversation:{$conversation->id}:recent";
@@ -50,7 +52,7 @@ class ConversationMessageController extends Controller
             fn () => $this->paginatedMessages($conversation, $limit)->getData(true),
         );
 
-        $this->logSync($conversation, $request, $cacheHit ? 'hit' : 'miss');
+        $this->logSync($conversation, $request, $cacheHit ? 'hit' : 'miss', $startedAt);
 
         return response()->json($payload);
     }
@@ -74,13 +76,14 @@ class ConversationMessageController extends Controller
         return $resource->response();
     }
 
-    private function logSync(Conversation $conversation, IndexMessagesRequest $request, string $cacheStatus): void
+    private function logSync(Conversation $conversation, IndexMessagesRequest $request, string $cacheStatus, float $startedAt): void
     {
-        Log::info('game_guide.messages_synced', [
+        Log::channel('game_guide_telemetry')->info('game_guide.messages_synced', [
             'conversation_id' => $conversation->id,
             'user_id' => $conversation->user_id,
             'cursor_provided' => $request->has('cursor'),
             'cache' => $cacheStatus,
+            'duration_ms' => (int) round((microtime(true) - $startedAt) * 1000),
         ]);
     }
 }

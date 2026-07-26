@@ -24,6 +24,8 @@ class RecordConversationMessage
      */
     public function record(Conversation $conversation, array $data): Message
     {
+        $startedAt = microtime(true);
+
         $message = DB::transaction(function () use ($conversation, $data) {
             $existing = Message::query()
                 ->where('conversation_id', $conversation->id)
@@ -43,28 +45,32 @@ class RecordConversationMessage
             ]);
         });
 
+        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
+
         if ($message->wasRecentlyCreated) {
             Cache::forget("conversation:{$conversation->id}:recent");
 
-            Log::info('game_guide.message_recorded', [
+            Log::channel('game_guide_telemetry')->info('game_guide.message_recorded', [
                 'conversation_id' => $conversation->id,
                 'user_id' => $conversation->user_id,
                 'message_id' => $message->id,
                 'sequence_number' => $message->sequence_number,
                 'origin_platform' => $data['origin_platform'],
+                'duration_ms' => $durationMs,
             ]);
 
             BroadcastMessageJob::dispatch($message);
 
             if (Feature::for($conversation->user)->active('game-guide-ai-replies')) {
-                GenerateGameGuideReplyJob::dispatch($conversation, $message->origin_platform);
+                GenerateGameGuideReplyJob::dispatch($message);
             }
         } else {
-            Log::info('game_guide.message_replay_deduplicated', [
+            Log::channel('game_guide_telemetry')->info('game_guide.message_replay_deduplicated', [
                 'conversation_id' => $conversation->id,
                 'user_id' => $conversation->user_id,
                 'message_id' => $message->id,
                 'client_message_id' => $data['client_message_id'],
+                'duration_ms' => $durationMs,
             ]);
         }
 
@@ -78,6 +84,8 @@ class RecordConversationMessage
      */
     public function recordAssistantReply(Conversation $conversation, string $body, OriginPlatform $originPlatform): Message
     {
+        $startedAt = microtime(true);
+
         $message = DB::transaction(fn () => $this->createLocked($conversation, [
             'sender_type' => SenderType::Assistant,
             'body' => $body,
@@ -86,14 +94,17 @@ class RecordConversationMessage
             'client_created_at' => null,
         ]));
 
+        $durationMs = (int) round((microtime(true) - $startedAt) * 1000);
+
         Cache::forget("conversation:{$conversation->id}:recent");
 
-        Log::info('game_guide.message_recorded', [
+        Log::channel('game_guide_telemetry')->info('game_guide.message_recorded', [
             'conversation_id' => $conversation->id,
             'user_id' => $conversation->user_id,
             'message_id' => $message->id,
             'sequence_number' => $message->sequence_number,
             'origin_platform' => $originPlatform->value,
+            'duration_ms' => $durationMs,
         ]);
 
         BroadcastMessageJob::dispatch($message);

@@ -37,7 +37,7 @@ Browser → `routes/web.php` (Inertia page render) or `routes/api/v1.php` (JSON)
 - Multi-persona switching for Game Guide — the personality is a single hardcoded system prompt (`GenerateGameGuideReply::SYSTEM_PROMPT`), not a database-backed `Agent` model with presets/switching like the sibling `advisor` project has. See docs/ARCHITECTURE_HISTORY.md's 2026-07-25 entry for why.
 - Streaming AI responses (SSE) — Game Guide's reply is generated in a queued job and delivered via the existing Reverb broadcast path, not streamed token-by-token to the requesting client.
 - Read replicas, table partitioning/sharding for `messages` at scale — described as a future migration path in docs/chat-sync-spec.md §6, not implemented; a single Postgres instance is correct for the current rollout phase.
-- Full observability stack (metrics, distributed tracing) — structured logging exists (`game_guide.*` events), but no OpenTelemetry/metrics/alerting infrastructure (docs/chat-sync-spec.md §7, §9).
+- Full observability stack (metrics dashboards, distributed tracing, alerting) — structured logging exists and is split into two channels (default channel for genuine errors; `game_guide_telemetry` for sync/performance events, each carrying a `duration_ms`-style timing — write latency, Anthropic call latency, history-fetch latency by cache status), but there's no OpenTelemetry/metrics-pipeline/alerting infrastructure consuming that data yet (docs/chat-sync-spec.md §7, §9; docs/CODE_PATTERNS.md's "Telemetry logging is a separate channel from error logging").
 
 ## Component docs
 _Detailed subsystem docs — one file per component in docs/architecture/_

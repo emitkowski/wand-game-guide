@@ -127,6 +127,21 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        // Game Guide's structured sync/performance telemetry (message writes,
+        // history syncs, reply generation — all `game_guide.*` events that
+        // aren't errors) — deliberately a separate channel/file from the
+        // default error/app log, so telemetry volume never crowds out real
+        // errors, and either can be shipped/rotated/retained independently.
+        // See docs/CODE_PATTERNS.md's "Telemetry logging is a separate
+        // channel from error logging" pattern.
+        'game_guide_telemetry' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/game_guide_telemetry.log'),
+            'level' => 'debug',
+            'days' => env('LOG_TELEMETRY_DAYS', 30),
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];

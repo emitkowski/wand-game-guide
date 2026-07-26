@@ -31,7 +31,8 @@ class GameGuideReplyDispatchTest extends TestCase
         ])->assertCreated();
 
         Queue::assertPushed(GenerateGameGuideReplyJob::class, function (GenerateGameGuideReplyJob $job) use ($conversation) {
-            return $job->conversation->is($conversation) && $job->originPlatform === OriginPlatform::Web;
+            return $job->triggeringMessage->conversation_id === $conversation->id
+                && $job->triggeringMessage->origin_platform === OriginPlatform::Web;
         });
     }
 
