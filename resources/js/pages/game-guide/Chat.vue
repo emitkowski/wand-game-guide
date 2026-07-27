@@ -292,7 +292,7 @@ async function loadOlder() {
 /**
  * Replays the persisted outbox sequentially, one message at a time, so a
  * later message never reaches the server ahead of an earlier one that's
- * still failing/offline — matches docs/chat-sync-spec.md §4.3.
+ * still failing/offline — matches docs/game-guide-chat-spec.md §4.3.
  */
 async function flushOutbox() {
     if (flushing.value) {

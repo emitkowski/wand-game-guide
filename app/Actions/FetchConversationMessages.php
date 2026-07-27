@@ -13,7 +13,7 @@ class FetchConversationMessages
 {
     /**
      * Returns the most recent messages when called with no cursor/limit
-     * (cacheable — see §6 of docs/chat-sync-spec.md), or a page relative
+     * (cacheable — see §6 of docs/game-guide-chat-spec.md), or a page relative
      * to a client-supplied cursor otherwise. Always ascending/chronological.
      */
     public function fetch(IndexMessagesRequest $request, Conversation $conversation): JsonResponse

@@ -4,24 +4,18 @@ In-game AI companion app — chat with "Game Guide," a general PC-game companion
 
 Laravel 13 + Inertia.js/Vue 3 (Fortify auth, 2FA, Pennant feature flags, Reverb, Sanctum), Postgres, Redis. Conversations sync across sessions/devices with cursor-paginated history and a client-side offline outbox; player messages get a real AI-generated reply from Anthropic's Claude API, delivered over a live WebSocket broadcast. See `docs/ARCHITECTURE.md` for the full system overview.
 
-## Prerequisites
-- Docker
-- Node.js & npm
-- mkcert (for the local HTTPS cert)
-- Shared dev-local infra running (`cd ~/code/dev-local && ./dev.sh start` — nginx-proxy, postgres, redis, mailpit)
+## What This Adds
 
-## Getting Started
+On top of the Laravel/Inertia/Vue starter kit foundation (Fortify auth, 2FA, standard settings pages), this app adds one real feature: **Game Guide**, an in-app AI chat companion.
 
-```bash
-cp .env.example .env
-./vendor/bin/sail up -d
-./vendor/bin/sail artisan key:generate
-./vendor/bin/sail artisan migrate --seed
-./vendor/bin/sail npm install
-./vendor/bin/sail npm run build     # or `npm run dev` for HMR
-```
-
-Seeds a local test account. Full setup detail (env vars, seeded credentials, troubleshooting common failures): `docs/SETUP.md`.
+- **Dashboard entry point** — a "Game Guide" link on the authenticated dashboard opens the chat.
+- **Chat page** (`/game-guide`) — a wide, elevated chat panel with a scrolling message list and composer, styled with the app's shadcn-vue/Tailwind design system.
+- **Real AI replies** — every player message gets a genuine reply from Anthropic's Claude API (a single hardcoded "Game Guide" persona), with a "Game Guide is thinking..." indicator shown while the reply generates in the background.
+- **Optimistic send** — a sent message appears instantly, before the server confirms it.
+- **Live multi-device sync** — messages sent from one open tab/device appear in another in real time over a WebSocket broadcast, no reload needed.
+- **Offline outbox** — messages composed while offline are queued locally and sent automatically, in order, once the connection returns.
+- **Reconnect resync** — a client that was disconnected while another device sent messages catches up automatically on reconnect, not just its own queued sends.
+- **Scrollback** — cursor-paginated "load older" history as you scroll up.
 
 ## Common Commands
 
@@ -57,5 +51,3 @@ Seeds a local test account. Full setup detail (env vars, seeded credentials, tro
 5. **Offline outbox:** open dev tools, go offline, send a message (queues locally, shown as "queued"), go back online — it auto-flushes and sends in order.
 6. **Multi-device sync:** open the same account in a second browser/tab — messages sent in one appear live in the other over the `conversation.{id}` broadcast channel. Take one tab offline (dev tools → Network → Offline) while a message is sent from the other, then bring it back online — it picks up the missed message automatically on reconnect, no manual reload.
 7. **History sync:** reload the page — history reloads from the API (not local state), most recent messages first; scroll up to trigger "load older" via cursor pagination.
-
-Both `chat-history-sync` and `game-guide-ai-replies` are Pennant flags, default-active for local dev (`AppServiceProvider::boot()`) — see `docs/FEATURE_FLAGS.md` to disable either without touching code.

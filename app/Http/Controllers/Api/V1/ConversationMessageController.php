@@ -14,7 +14,7 @@ class ConversationMessageController extends Controller
 {
     /**
      * Serves both scroll-back and reconnect delta-sync from the same cursor
-     * mechanism (§4.4 of docs/chat-sync-spec.md) — no separate endpoint needed.
+     * mechanism (§4.4 of docs/game-guide-chat-spec.md) — no separate endpoint needed.
      */
     public function index(
         IndexMessagesRequest $request,

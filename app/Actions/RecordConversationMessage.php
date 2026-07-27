@@ -113,7 +113,7 @@ class RecordConversationMessage
     }
 
     /**
-     * Shared locked-increment-and-create logic (§4.1 of docs/chat-sync-spec.md):
+     * Shared locked-increment-and-create logic (§4.1 of docs/game-guide-chat-spec.md):
      * takes a row lock on the conversation, increments its sequence counter,
      * and stamps the new message with that value. Must run inside a transaction.
      *
