@@ -14,7 +14,7 @@ Server-side layout (mirrors the other sites' pattern exactly):
 - Supervisor: `wandgameguide-worker` (queue:work) and `wandgameguide-reverb` (reverb:start --port=8082, proxied through nginx's `/app` location)
 - GitHub Actions secrets set on `emitkowski/wand-game-guide` (DEPLOY_HOST/USER/SSH_KEY/PATH) — push to `main` auto-deploys via the existing `.github/workflows/deploy.yml`
 
-**Important:** the chat-sync feature (conversations/messages, docs/chat-sync-spec.md) was built and tested locally in this same session but is **not yet committed** (Eric commits everything himself). The live site currently only has the base starter-kit app deployed. Once he commits and pushes to `main`, the Actions workflow will auto-deploy the chat-sync feature — no further server setup needed, the pipeline is already wired.
+**Important:** the chat-sync feature (conversations/messages) was built and tested locally in this same session but is **not yet committed** (Eric commits everything himself). The live site currently only has the base starter-kit app deployed. Once he commits and pushes to `main`, the Actions workflow will auto-deploy the chat-sync feature — no further server setup needed, the pipeline is already wired.
 
 ## Known Issues
 

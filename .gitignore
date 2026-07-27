@@ -46,3 +46,6 @@ docs/memory/*.md
 
 # Test coverage output
 coverage/
+
+# Local-only working docs (spec drafts, write-ups) — not part of the MAP doc structure, never shared
+docs/local/

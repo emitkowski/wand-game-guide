@@ -29,7 +29,7 @@ cp .env.example .env
 
 # 5. Database
 ./vendor/bin/sail artisan migrate --seed
-# seeds two accounts: eric.mitkowski@gmail.com / secret, and test@wand.com / gameguidetest
+# seeds two accounts — see database/seeders/UserSeeder.php for credentials
 
 # 6. Frontend
 ./vendor/bin/sail npm install

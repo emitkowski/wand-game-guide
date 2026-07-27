@@ -2,7 +2,7 @@
 
 In-game AI companion app — chat with "Game Guide," a general PC-game companion for tips, boss/enemy strategies, item and secret locations, and build/loadout advice (job sample project).
 
-Laravel 13 + Inertia.js/Vue 3 (Fortify auth, 2FA, Pennant feature flags, Reverb, Sanctum), Postgres, Redis. Conversations sync across sessions/devices with cursor-paginated history and a client-side offline outbox; player messages get a real AI-generated reply from Anthropic's Claude API, delivered over a live WebSocket broadcast. See `docs/chat-sync-spec.md` for the sync design and `docs/ARCHITECTURE.md` for the full system overview.
+Laravel 13 + Inertia.js/Vue 3 (Fortify auth, 2FA, Pennant feature flags, Reverb, Sanctum), Postgres, Redis. Conversations sync across sessions/devices with cursor-paginated history and a client-side offline outbox; player messages get a real AI-generated reply from Anthropic's Claude API, delivered over a live WebSocket broadcast. See `docs/ARCHITECTURE.md` for the full system overview.
 
 ## Prerequisites
 - Docker
@@ -21,7 +21,7 @@ cp .env.example .env
 ./vendor/bin/sail npm run build     # or `npm run dev` for HMR
 ```
 
-Seeds a test account: `test@wand.com` / `gameguidetest`. Full setup detail (env vars, troubleshooting common failures): `docs/SETUP.md`.
+Seeds a local test account. Full setup detail (env vars, seeded credentials, troubleshooting common failures): `docs/SETUP.md`.
 
 ## Common Commands
 
@@ -52,7 +52,7 @@ Seeds a test account: `test@wand.com` / `gameguidetest`. Full setup detail (env 
    ```bash
    ./vendor/bin/sail up -d
    ```
-3. Log in as `test@wand.com` / `gameguidetest`, open **Game Guide** from the dashboard.
+3. Log in with the seeded test account (see `docs/SETUP.md`), open **Game Guide** from the dashboard.
 4. Send a message (e.g. "how do I beat the first boss in Elden Ring?"). It should appear instantly (optimistic render), then a "Game Guide is thinking" indicator shows while `GenerateGameGuideReplyJob` calls Anthropic in the background; the reply arrives via Reverb broadcast with no page reload.
 5. **Offline outbox:** open dev tools, go offline, send a message (queues locally, shown as "queued"), go back online — it auto-flushes and sends in order.
 6. **Multi-device sync:** open the same account in a second browser/tab — messages sent in one appear live in the other over the `conversation.{id}` broadcast channel.

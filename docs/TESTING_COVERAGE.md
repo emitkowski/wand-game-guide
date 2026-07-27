@@ -35,7 +35,7 @@ _Remove rows that don't apply. Add rows for additional suites (e2e, contract, et
 
 ---
 
-## Area 1 — Chat history sync (docs/chat-sync-spec.md)
+## Area 1 — Chat history sync
 
 _All files below are at 100% — they don't appear in Collision's compact report, which only lists files under 100%._
 
