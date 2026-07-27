@@ -8,6 +8,10 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class IndexMessagesRequest extends FormRequest
 {
+    /**
+     * Same ownership check as StoreMessageRequest — a player must not be able
+     * to read another player's conversation just by guessing its UUID.
+     */
     public function authorize(): bool
     {
         /** @var Conversation $conversation */

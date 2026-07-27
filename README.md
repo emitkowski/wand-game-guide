@@ -55,7 +55,7 @@ Seeds a local test account. Full setup detail (env vars, seeded credentials, tro
 3. Log in with the seeded test account (see `docs/SETUP.md`), open **Game Guide** from the dashboard.
 4. Send a message (e.g. "how do I beat the first boss in Elden Ring?"). It should appear instantly (optimistic render), then a "Game Guide is thinking" indicator shows while `GenerateGameGuideReplyJob` calls Anthropic in the background; the reply arrives via Reverb broadcast with no page reload.
 5. **Offline outbox:** open dev tools, go offline, send a message (queues locally, shown as "queued"), go back online — it auto-flushes and sends in order.
-6. **Multi-device sync:** open the same account in a second browser/tab — messages sent in one appear live in the other over the `conversation.{id}` broadcast channel.
+6. **Multi-device sync:** open the same account in a second browser/tab — messages sent in one appear live in the other over the `conversation.{id}` broadcast channel. Take one tab offline (dev tools → Network → Offline) while a message is sent from the other, then bring it back online — it picks up the missed message automatically on reconnect, no manual reload.
 7. **History sync:** reload the page — history reloads from the API (not local state), most recent messages first; scroll up to trigger "load older" via cursor pagination.
 
 Both `chat-history-sync` and `game-guide-ai-replies` are Pennant flags, default-active for local dev (`AppServiceProvider::boot()`) — see `docs/FEATURE_FLAGS.md` to disable either without touching code.

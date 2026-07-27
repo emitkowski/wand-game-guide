@@ -11,7 +11,7 @@ _Project-specific only — not general conventions_
 - **Frontend pages fetch their own data client-side rather than receiving it all as Inertia props**, when that data is already served by a real API endpoint the page needs to call repeatedly anyway (e.g. `game-guide/Chat.vue` fetching message history from the same `/api/v1/...` endpoint used for pagination, rather than the page controller embedding an initial page of messages as a prop). Keeps one code path for "initial load" and "load more" instead of two.
 
 ## Naming conventions
-- Route names: `resource.action` (`profile.edit`, `game-guide.index`, `conversations.messages.store`) — dot-separated, resource first.
+- Route names: `resource.action` (`profile.edit`, `game-guide.index`, `conversations.messages.store`) — dot-separated, resource first. API routes additionally carry an `api.v1.` prefix at registration time (e.g. the actual registered name is `api.v1.conversations.messages.store`) — applied by `routes/api.php`'s `Route::prefix('v1')->name('api.v1.')->group(base_path('routes/api/v1.php'))` wrapper, not written explicitly in each route's own `->name()` call. Nothing in this app currently references these names (web routes use `route()`, but `Chat.vue` calls the API via raw `axios` URLs), so this hasn't mattered in practice — worth knowing if that changes.
 - Enums live under the owning model's namespace in a nested `Enums/` folder (`App\Models\Enums\SenderType`, not a top-level `App\Enums\`) — mirrors the existing `Models\Traits`/`Models\Mutators` nesting convention. Enum cases are `TitleCase` per `.claude/rules` PHP conventions (`SenderType::Player`, not `SenderType::PLAYER`).
 - Structured log event names are dotted and namespaced by feature, lowercase (`game_guide.message_recorded`), not a free-text sentence — see Cross-cutting concerns below.
 - Client-generated idempotency keys are named `client_message_id` (or `client_*_id` generally), always distinct from the server-assigned `id` — never reuse one field for both a client-local identity and the server's canonical one.
@@ -38,11 +38,11 @@ _Previously documented here: `app/Utils/ApiResponse/*` (a never-registered Fract
 **Example:** [Brief code reference]
 -->
 
-### Controller business logic lives in single-purpose Action classes
-**Context:** Any controller action that does more than validate + call something + format a response — i.e. has real business logic (DB writes, ordering/locking, dispatching side effects).
-**Pattern:** Extract the logic into an invokable-style class under `app/Actions/` (not necessarily literal `__invoke`, a clearly-named public method is fine), so the controller stays thin and the logic is reusable from other callers (queue jobs, artisan commands, a future internal service). Mirrors the existing `app/Actions/Fortify/*` classes.
-**Anti-pattern:** Business logic inline in the controller method.
-**Example:** `app/Actions/RecordConversationMessage.php`, called from `app/Http/Controllers/Api/V1/ConversationMessageController.php`.
+### Controller business logic lives in single-purpose Action classes, even with only one caller
+**Context:** Any controller method with real business logic (DB writes, ordering/locking, dispatching side effects, cache orchestration) — deciding whether it belongs in `app/Actions/` or can stay in the controller.
+**Pattern:** Extract to `app/Actions/` (a clearly-named public method, not necessarily `__invoke`) whenever a controller method has real logic — not only once a second caller exists. The controller should be a pure HTTP adapter: extract request data, call one Action, return a response. Zero private helper methods in a controller class, full stop. Reuse (e.g. `RecordConversationMessage` also being called by `GenerateGameGuideReplyJob`) is a bonus reason to extract, not the bar for whether to extract at all.
+**Anti-pattern:** Private helper methods on a controller (e.g. a `paginatedMessages()`/`logSync()` pair called only from `index()`) — even single-use, they mean the controller is still doing business logic's job, just with better internal naming. See docs/ARCHITECTURE_HISTORY.md's 2026-07-27 entry ("Controllers are pure HTTP adapters — extract regardless of reuse") for the full reasoning trail on why a reuse-only bar was tried and rejected.
+**Example:** `app/Actions/RecordConversationMessage.php` and `app/Actions/FetchConversationMessages.php`, called from `app/Http/Controllers/Api/V1/ConversationMessageController.php` — both of the controller's methods are a single call into an Action, nothing else.
 
 ### API responses use JsonResource, not the legacy ApiResponse util
 **Context:** Any new JSON API endpoint.
@@ -54,13 +54,13 @@ _Previously documented here: `app/Utils/ApiResponse/*` (a never-registered Fract
 **Context:** Any endpoint listing a table that grows unbounded per-owner (chat messages, activity logs, etc.) where offset pagination would degrade with history depth, and where the common case is "show me the latest N, then let me scroll into history."
 **Pattern:** Framework-native `->orderByDesc(<monotonic column>)->cursorPaginate($limit)` — **descending**, not ascending, so a request with no cursor returns the most recent N rows (see BUG-3 in docs/BUGS_ARCHIVE.md for what goes wrong with ascending order). Reverse only the resource collection's mapped `data` (`$resource->collection = $resource->collection->reverse()->values();`), never the paginator instance itself — Laravel computes `nextCursor()`/`previousCursor()` lazily from the paginator's own untouched items, so reversing just the output preserves correct cursor values while restoring ascending display order. `meta.next_cursor` becomes the "load older" token. The same cursor mechanism serves both "load older" and "sync what's new since I left" — no separate delta-sync endpoint or server-side per-client cursor state needed.
 **Anti-pattern:** Offset/page-number pagination (`->paginate()`) on unbounded per-owner tables — becomes an O(n) scan the deeper a user's history gets. Also: ascending `orderBy()` with no cursor, which returns the *oldest* rows first (BUG-3).
-**Example:** `ConversationMessageController::paginatedMessages()`, ordered on `messages.sequence_number` (see docs/SCHEMA.md).
+**Example:** `FetchConversationMessages::paginatedMessages()`, ordered on `messages.sequence_number` (see docs/SCHEMA.md).
 
 ### Cache the resolved JSON, not a hand-built envelope, for the "give me the default view" case
 **Context:** An endpoint with one common, parameter-free request shape (e.g. "latest messages, no cursor, default limit") that's worth caching, alongside other parameterized requests that shouldn't be cached (custom cursor/limit).
 **Pattern:** Only cache when the request matches the default shape exactly (`!$request->has('cursor') && !$request->has('limit')`), under one well-known key per owner (`conversation:{id}:recent`). Cache `$response->getData(true)` — the fully-resolved array Laravel already produced — via `Cache::remember()`, so a cache hit and a cache miss return byte-identical JSON with no separate envelope-building code to keep in sync. Invalidate with a plain `Cache::forget()` at the one write path that can change the result, right where that write already happens.
 **Anti-pattern:** Keying the cache by every possible parameter combination (needs wildcard/tag-based invalidation for one write path) when the real traffic pattern only ever has one common shape worth caching.
-**Example:** `ConversationMessageController::index()` (cache) / `RecordConversationMessage::record()` (invalidation).
+**Example:** `FetchConversationMessages::fetch()` (cache) / `RecordConversationMessage::record()` (invalidation).
 
 ### Per-owner monotonic ordering via a locked counter column
 **Context:** Any table needing a strict, gapless-enough ordering scoped to one owner (not global) — e.g. messages within a conversation.

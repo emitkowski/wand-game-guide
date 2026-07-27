@@ -8,6 +8,10 @@ use Illuminate\Http\Resources\Json\JsonResource;
 class MessageResource extends JsonResource
 {
     /**
+     * `sequence_number`, not `id` or `created_at`, is what a client should sort
+     * on — it's the only authoritative ordering signal (see docs/SCHEMA.md).
+     * `client_created_at` is included purely as a display hint.
+     *
      * @return array<string, mixed>
      */
     public function toArray(Request $request): array

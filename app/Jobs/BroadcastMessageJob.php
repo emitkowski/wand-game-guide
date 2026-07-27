@@ -15,6 +15,11 @@ class BroadcastMessageJob implements ShouldQueue
         public readonly Message $message,
     ) {}
 
+    /**
+     * Deliberately just this one line — the job's whole purpose is to move
+     * the broadcast off the request/response path (see CODE_PATTERNS.md's
+     * "Real-time is a queued side effect of a write"), not to do more work.
+     */
     public function handle(): void
     {
         MessageCreated::dispatch($this->message);

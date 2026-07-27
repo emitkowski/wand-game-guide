@@ -17,17 +17,31 @@ class MessageCreated implements ShouldBroadcast
         public readonly Message $message,
     ) {}
 
+    /**
+     * Private, not public — routes/channels.php's authorizer re-checks
+     * conversation ownership per socket connection, same guarantee the
+     * REST endpoints enforce, so this channel can't be sniffed by guessing.
+     */
     public function broadcastOn(): PrivateChannel
     {
         return new PrivateChannel('conversation.' . $this->message->conversation_id);
     }
 
+    /**
+     * A short, stable alias instead of the default (the fully-qualified
+     * class name) — keeps the frontend's Echo listener name decoupled from
+     * this class's namespace/location.
+     */
     public function broadcastAs(): string
     {
         return 'message.created';
     }
 
     /**
+     * Deliberately mirrors MessageResource's shape so the client can handle a
+     * message identically whether it arrived via broadcast or via the sync
+     * fetch — one parsing path, not two.
+     *
      * @return array<string, mixed>
      */
     public function broadcastWith(): array

@@ -12,7 +12,7 @@ _All suites at a glance — update after every coverage run_
 
 | Suite | Tool | Overall | Threshold | Status | Last run |
 |---|---|---|---|---|---|
-| Backend | PHPUnit | 100.0% | 80% | ✓ above threshold | 2026-07-26 |
+| Backend | PHPUnit | 100.0% | 80% | ✓ above threshold | 2026-07-27 |
 | Frontend | Vitest | 90.88% stmts | 80% | ✓ above threshold | 2026-07-27 |
 
 _Remove rows that don't apply. Add rows for additional suites (e2e, contract, etc.)._
@@ -42,7 +42,8 @@ _All files below are at 100% — they don't appear in Collision's compact report
 | File | % | Status | Notes |
 |---|---|---|---|
 | `app/Actions/RecordConversationMessage.php` | 100% | `[covered]` | Idempotency, locked-counter ordering, cache invalidation, structured logging, broadcast dispatch — all exercised by `ConversationMessageTest` |
-| `app/Http/Controllers/Api/V1/ConversationMessageController.php` | 100% | `[covered]` | Both the cacheable (no cursor/limit) and bypass paths exercised, including cache hit/miss |
+| `app/Actions/FetchConversationMessages.php` | 100% | `[covered]` | Both the cacheable (no cursor/limit) and bypass paths exercised, including cache hit/miss |
+| `app/Http/Controllers/Api/V1/ConversationMessageController.php` | 100% | `[covered]` | Thin dispatcher — `store()` calls `RecordConversationMessage`, `index()` calls `FetchConversationMessages`. Settled here after real back-and-forth the same day (extracted → folded back on a reuse-only test → re-extracted once the controller-cleanliness rule won out) — see docs/ARCHITECTURE_HISTORY.md's 2026-07-27 entry |
 | `app/Http/Controllers/GameGuideController.php` | 100% | `[covered]` | `GameGuideControllerTest` |
 | `app/Http/Requests/Api/V1/StoreMessageRequest.php` | 100% | `[covered]` | Authorization path covered by the cross-user rejection test |
 | `app/Http/Requests/Api/V1/IndexMessagesRequest.php` | 100% | `[covered]` | |
@@ -178,3 +179,6 @@ Roughly flat vs. 90.8% stmts earlier the same day (after BUG-10) — BUG-11/12 a
 | 2026-07-26 | Backend (PHPUnit) | 100.0% | 86 passed | 3.95s (post telemetry/error channel split) |
 | 2026-07-27 | Frontend (Vitest) | 90.8% stmts | 223 passed | ~14s (post BUG-10 fix; run via host `npx vitest`, Docker/Sail unavailable that session) |
 | 2026-07-27 | Frontend (Vitest) | 90.88% stmts | 225 passed | post BUG-11/BUG-12 fixes + a pre-existing test-mock bug fix; run via host `npx vitest` |
+| 2026-07-27 | Backend (PHPUnit) | 100.0% | 86 passed | 3.71s (post `FetchConversationMessages` extraction — no test changes needed, same 86/100%) |
+| 2026-07-27 | Backend (PHPUnit) | 100.0% | 86 passed | 3.43s (post fold-back — `FetchConversationMessages` had exactly one caller, so it was reverted into `ConversationMessageController::index()` the same day; same 86/100%) |
+| 2026-07-27 | Backend (PHPUnit) | 100.0% | 86 passed | 3.45s (re-extracted `FetchConversationMessages` the same day — controllers should stay pure HTTP adapters regardless of reuse; see docs/ARCHITECTURE_HISTORY.md's 2026-07-27 entry — same 86/100%) |

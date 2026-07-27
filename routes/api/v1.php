@@ -21,6 +21,13 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::middleware(['auth:sanctum', EnsureFeaturesAreActive::using('chat-history-sync')])->group(function () {
+    // Only the write path is throttled: a buggy/abusive client hammering POST
+    // has compounding cost per request — a row lock, a DB write, a queued
+    // broadcast job, and in production a paid Anthropic call. GET is read-only
+    // and the common (no cursor/limit) shape is Redis-cached, so it's cheap by
+    // default — but a request that *does* pass cursor/limit bypasses that cache
+    // (see FetchConversationMessages::fetch()) and isn't throttled anywhere in
+    // this app, so it's not fully protected against being hammered either.
     Route::post('/conversations/{conversation}/messages', [ConversationMessageController::class, 'store'])
         ->middleware('throttle:60,1')
         ->name('conversations.messages.store');

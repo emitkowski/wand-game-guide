@@ -10,6 +10,11 @@ use Illuminate\Validation\Rule;
 
 class StoreMessageRequest extends FormRequest
 {
+    /**
+     * Route-model binding resolves {conversation} for any authenticated user —
+     * this is the actual ownership check, without which one player could post
+     * into another player's conversation just by guessing a UUID.
+     */
     public function authorize(): bool
     {
         /** @var Conversation $conversation */
