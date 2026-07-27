@@ -58,6 +58,14 @@ const outboxKey = `game-guide:outbox:${props.conversationId}`;
 const REPLY_TIMEOUT_MS = 30_000;
 let replyTimeouts: ReturnType<typeof setTimeout>[] = [];
 
+// syncMissedMessages()'s default fetch only returns the latest page
+// (per_page, currently 50 — see docs/CODE_PATTERNS.md's cursor-pagination
+// pattern). If more than a page's worth of messages were missed, this bounds
+// how many additional older pages it'll fetch to close the gap, so a truly
+// enormous gap can't turn a reconnect into an unbounded fetch loop (see
+// BUG-12, docs/BUGS_ARCHIVE.md).
+const MAX_BACKFILL_PAGES = 20;
+
 function awaitReply() {
     pendingReplyCount.value++;
     scrollToBottom();
@@ -111,6 +119,100 @@ async function scrollToBottom() {
 
     if (scrollContainer.value) {
         scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight;
+    }
+}
+
+/**
+ * Re-fetches the latest history and merges in anything this client hasn't
+ * seen yet — messages from another device/tab/platform sent while this
+ * client was offline never arrive via broadcast (Reverb doesn't replay
+ * missed events for a disconnected client) and flushOutbox() only pushes
+ * this client's own queued sends, so a reconnect would otherwise silently
+ * miss them until a manual reload (see BUG-10, docs/BUGS_ARCHIVE.md).
+ */
+async function syncMissedMessages() {
+    const previousMaxSequence = messages.value.reduce(
+        (max, m) => Math.max(max, m.sequence_number),
+        0,
+    );
+
+    const { data } = await window.axios.get(
+        ConversationMessageController.index.url(props.conversationId),
+    );
+
+    let fetched = data.data as Message[];
+    let cursor: string | null = data.meta?.next_cursor ?? null;
+    let backfilled = false;
+    let guard = 0;
+
+    // The default fetch only returns the latest page — if the oldest message
+    // in it is still newer than what this client already had, more than one
+    // page's worth of messages was missed while disconnected. Keep paging
+    // older via the same cursor `loadOlder()` uses until the gap closes or
+    // history runs out (see BUG-12, docs/BUGS_ARCHIVE.md).
+    while (
+        cursor &&
+        fetched.length > 0 &&
+        fetched[0].sequence_number > previousMaxSequence + 1 &&
+        guard < MAX_BACKFILL_PAGES
+    ) {
+        const older = await window.axios.get(
+            ConversationMessageController.index.url(props.conversationId, {
+                query: { cursor },
+            }),
+        );
+        fetched = [...(older.data.data as Message[]), ...fetched];
+        cursor = older.data.meta?.next_cursor ?? null;
+        backfilled = true;
+        guard++;
+    }
+
+    if (backfilled) {
+        // The effective "oldest loaded" boundary moved further back than
+        // whatever loadInitial()/a prior loadOlder() had already set — keep
+        // it in sync so a subsequent manual "load older" continues from the
+        // right place instead of re-fetching (and re-prepending, since
+        // loadOlder() has no dedup) a page that overlaps what was just
+        // backfilled here.
+        olderCursor.value = cursor;
+    }
+
+    let addedAny = false;
+
+    for (const message of fetched) {
+        const alreadyKnown = messages.value.some(
+            (m) =>
+                m.id === message.id ||
+                m.client_message_id === message.client_message_id,
+        );
+
+        if (!alreadyKnown) {
+            messages.value.push(message);
+            addedAny = true;
+        }
+    }
+
+    if (addedAny) {
+        // Stable sort: real sequence numbers ascend as usual; any
+        // still-unconfirmed local sends (sequence_number 0, from this
+        // client's own outbox) keep their relative order and stay last.
+        messages.value.sort((a, b) => {
+            if (a.sequence_number === 0 && b.sequence_number === 0) {
+                return 0;
+            }
+
+            if (a.sequence_number === 0) {
+                return 1;
+            }
+
+            if (b.sequence_number === 0) {
+                return -1;
+            }
+
+            return a.sequence_number - b.sequence_number;
+        });
+
+        await scrollToBottom();
     }
 }
 
@@ -326,12 +428,26 @@ onMounted(async () => {
         },
     );
 
-    window.addEventListener('online', flushOutbox);
+    window.addEventListener('online', handleReconnect);
+
+    // The browser's `online` event only tells us the network interface came
+    // back — it doesn't fire for a WebSocket-level drop/reconnect that never
+    // toggles navigator.onLine (a Reverb restart, an idle-timeout disconnect,
+    // laptop sleep/wake). Pusher-js's own 'connected' event fires on every
+    // successful (re)connection regardless of cause, so it's a more reliable
+    // signal for "I might have missed broadcasts" (see BUG-11, docs/BUGS_ARCHIVE.md).
+    window.Echo.connector.pusher.connection.bind('connected', handleReconnect);
 });
+
+async function handleReconnect() {
+    await syncMissedMessages();
+    await flushOutbox();
+}
 
 onUnmounted(() => {
     window.Echo.leaveChannel(`conversation.${props.conversationId}`);
-    window.removeEventListener('online', flushOutbox);
+    window.removeEventListener('online', handleReconnect);
+    window.Echo.connector.pusher.connection.unbind('connected', handleReconnect);
     replyTimeouts.forEach(clearTimeout);
     replyTimeouts = [];
 });

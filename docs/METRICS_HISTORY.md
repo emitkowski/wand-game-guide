@@ -59,3 +59,21 @@ _For leadership: read the most recent entry for current numbers, skim the whole 
 | Open bugs | 0 | — |
 | Blocking bugs | 0 | — |
 | Milestones complete | 1/2 (Foundation done, Domain features not started) | — |
+
+### 2026-07-27 (later same day — BUG-8/9/10 found and fixed live against production)
+| Metric | Value | Change since last entry |
+|---|---|---|
+| Test count | 309 (86 backend + 223 frontend) | +5 (+1 backend from BUG-7's session, +4 frontend from BUG-10's fix) |
+| Coverage | 100.0% backend, 90.8% stmts frontend | Flat — both still above the 80% threshold |
+| Open bugs | 0 | — (BUG-8, BUG-9, BUG-10 found and fixed same-day: broadcast wrong host/port, missing production Anthropic key, reconnect not re-syncing messages from other sources) |
+| Blocking bugs | 0 | — |
+| Milestones complete | 1/2 (Foundation done, Domain features not started) | — |
+
+### 2026-07-27 (later still — BUG-11/12 found and fixed, closing the "two clients stay in sync" question)
+| Metric | Value | Change since last entry |
+|---|---|---|
+| Test count | 311 (86 backend + 225 frontend) | +2 (frontend only, BUG-11/12's fixes) |
+| Coverage | 100.0% backend, 90.88% stmts frontend | Roughly flat — both still above the 80% threshold |
+| Open bugs | 0 | — (BUG-11: reconnect resync missed WebSocket-level reconnects that don't toggle navigator.onLine; BUG-12: resync only fetched the latest page, silently dropping larger gaps) |
+| Blocking bugs | 0 | — |
+| Milestones complete | 1/2 (Foundation done, Domain features not started) | — |

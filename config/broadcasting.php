@@ -36,10 +36,16 @@ return [
             'secret' => env('REVERB_APP_SECRET'),
             'app_id' => env('REVERB_APP_ID'),
             'options' => [
+                // REVERB_CLIENT_* vars let the server-side broadcaster (this app acting as a
+                // client of Reverb) reach it directly, separately from REVERB_HOST/PORT/SCHEME,
+                // which describe the public address browsers use (see docs/DOCKER.md and
+                // BUG-8 in docs/BUGS_ARCHIVE.md — without this split, a deployment where Reverb's
+                // internal port/scheme differ from the public-facing ones silently broadcasts
+                // to the wrong place).
                 'host' => env('REVERB_CLIENT_HOST', '127.0.0.1'),
-                'port' => env('REVERB_PORT', 443),
-                'scheme' => env('REVERB_SCHEME', 'https'),
-                'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
+                'port' => env('REVERB_CLIENT_PORT', env('REVERB_PORT', 443)),
+                'scheme' => env('REVERB_CLIENT_SCHEME', env('REVERB_SCHEME', 'https')),
+                'useTLS' => env('REVERB_CLIENT_SCHEME', env('REVERB_SCHEME', 'https')) === 'https',
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html

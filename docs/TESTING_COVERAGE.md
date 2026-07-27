@@ -13,7 +13,7 @@ _All suites at a glance — update after every coverage run_
 | Suite | Tool | Overall | Threshold | Status | Last run |
 |---|---|---|---|---|---|
 | Backend | PHPUnit | 100.0% | 80% | ✓ above threshold | 2026-07-26 |
-| Frontend | Vitest | 90.83% stmts | 80% | ✓ above threshold | 2026-07-25 |
+| Frontend | Vitest | 90.88% stmts | 80% | ✓ above threshold | 2026-07-27 |
 
 _Remove rows that don't apply. Add rows for additional suites (e2e, contract, etc.)._
 
@@ -80,17 +80,17 @@ Nothing outstanding. Overall coverage is 100%. The only soft gap: no test direct
 
 # Frontend ([Vitest / Jest])
 
-**Suite:** 219 tests passing across 50 files, 0 failing (~17s with coverage).
-**Overall coverage (2026-07-25, after the "full testing" pass):**
+**Suite:** 225 tests passing across 50 files, 0 failing (run 2026-07-27 directly via host `npx vitest` — Docker/Sail unavailable that session).
+**Overall coverage (2026-07-27, after BUG-11/BUG-12's fixes):**
 
 | Metric | % | Hits / Total |
 |---|---|---|
-| Statements | 90.83% | 644 / 709 |
-| Branches | 85.23% | 381 / 447 |
-| Functions | 89.69% | 261 / 291 |
-| Lines | 90.85% | 626 / 689 |
+| Statements | 90.88% | 678 / 746 |
+| Branches | 85.35% | 402 / 471 |
+| Functions | 89.52% | 265 / 296 |
+| Lines | 90.9% | 660 / 726 |
 
-Up from 23.69% stmts earlier the same day — 43 new test files were added covering every previously-untested page, component, layout, and composable in `resources/js` (auth pages, settings pages, the two-factor auth flow, the whole shared app shell/nav, all layouts). See "How this was structured" below for the approach.
+Roughly flat vs. 90.8% stmts earlier the same day (after BUG-10) — BUG-11/12 added real gap-detection/backfill logic and a WebSocket-reconnect listener alongside tests covering them, netting out close to even. Before that, up from 23.69% stmts on 2026-07-25, when 43 new test files were added covering every previously-untested page, component, layout, and composable in `resources/js` (auth pages, settings pages, the two-factor auth flow, the whole shared app shell/nav, all layouts). See "How this was structured" below for the approach.
 
 ## How to run
 
@@ -115,7 +115,7 @@ Up from 23.69% stmts earlier the same day — 43 new test files were added cover
 
 | File | % Stmts | Status | Notes |
 |---|---|---|---|
-| `pages/game-guide/Chat.vue` | 83.73% | `[covered]` | 14 tests: initial load, Echo subscribe/unsubscribe, optimistic send + reconciliation, failed-send retry, broadcast de-dup, offline queueing, reload persistence, auto-flush on `online`, sequential ordered replay, plus 5 for the "Game Guide is thinking" indicator. Uncovered lines are `loadOlder()`'s scroll-position-preservation branch and one unreachable-in-tests edge of the retry path — pre-existing, low-priority gap, not touched in the 2026-07-25 full-testing pass. |
+| `pages/game-guide/Chat.vue` | 85.62% | `[covered]` | 20 tests: initial load, Echo subscribe/unsubscribe, optimistic send + reconciliation, failed-send retry, broadcast de-dup, offline queueing, reload persistence, auto-flush on `online`, sequential ordered replay, 5 for the "Game Guide is thinking" indicator, 4 for `syncMissedMessages()` (BUG-10: re-fetches on reconnect, ignores an outbox-reconciled message, orders a synced real message ahead of a queued local one, reorders two already-real messages by `sequence_number`), plus 2 more new (2026-07-27, BUG-11/BUG-12): re-syncs on Pusher-js's own `connected` event with no browser `online` event at all, and backfills a multi-page gap via the same cursor `loadOlder()` uses. The mount/unmount test was also extended to assert `Echo.connector.pusher.connection.bind`/`unbind` for `'connected'`. Uncovered lines are `loadOlder()`'s scroll-position-preservation branch, one unreachable-in-tests edge of the retry path, the `onComposerKeydown` shift+enter branch, the sort comparator's two symmetric branches (all pre-existing/low-priority, noted previously), and now also `hydrateOutbox()`'s "already fetched, skip" branch — newly *visible* as a gap only after fixing a pre-existing test-mock bug that had been silently covering the wrong branch (see docs/memory/testing.md's second 2026-07-27 entry). |
 
 ## Area 2 — Auth, settings, and the two-factor auth flow (2026-07-25)
 
@@ -155,7 +155,7 @@ Up from 23.69% stmts earlier the same day — 43 new test files were added cover
 
 ## What's left to tackle (frontend)
 
-1. `pages/game-guide/Chat.vue`'s remaining uncovered branches: the `loadOlder()` scroll-position math, and one retry-path edge — pre-existing, unrelated to the 2026-07-25 full-testing pass.
+1. `pages/game-guide/Chat.vue`'s remaining uncovered branches: the `loadOlder()` scroll-position math, one retry-path edge, the shift+enter composer branch, two symmetric sort-comparator branches from BUG-10's fix, and `hydrateOutbox()`'s "already known" skip branch (2026-07-27) — deliberately not chased further, see the Area 1 table note.
 2. A handful of small, cosmetic/edge-case branches noted in Area 2/3 above (a Form prop never exercised, a clipboard-copy button, a nested ternary branch, an exposed-but-rarely-called `focus()` method) — deliberately not chased further; closing them would mean testing framework plumbing (Inertia's real `Form` internals) rather than this app's own logic.
 3. `composables/useAppearance.ts` — pre-existing partial coverage, not part of the 2026-07-25 scope.
 
@@ -176,3 +176,5 @@ Up from 23.69% stmts earlier the same day — 43 new test files were added cover
 | 2026-07-26 | Backend (PHPUnit) | 100.0% | 86 passed | 3.72s |
 | 2026-07-26 | Backend (PHPUnit) | 100.0% | 86 passed | 3.90s (post BUG-5 fix) |
 | 2026-07-26 | Backend (PHPUnit) | 100.0% | 86 passed | 3.95s (post telemetry/error channel split) |
+| 2026-07-27 | Frontend (Vitest) | 90.8% stmts | 223 passed | ~14s (post BUG-10 fix; run via host `npx vitest`, Docker/Sail unavailable that session) |
+| 2026-07-27 | Frontend (Vitest) | 90.88% stmts | 225 passed | post BUG-11/BUG-12 fixes + a pre-existing test-mock bug fix; run via host `npx vitest` |

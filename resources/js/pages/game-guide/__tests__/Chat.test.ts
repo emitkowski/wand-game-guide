@@ -37,6 +37,8 @@ function setOnline(value: boolean) {
 
 describe('game-guide/Chat', () => {
     let listenMock: ReturnType<typeof vi.fn>;
+    let connectionBindMock: ReturnType<typeof vi.fn>;
+    let connectionUnbindMock: ReturnType<typeof vi.fn>;
     // Tracked so afterEach can always unmount — Chat.vue registers a
     // `window.addEventListener('online', ...)` in onMounted, and a wrapper
     // left mounted across tests would leak that listener onto the shared
@@ -44,18 +46,46 @@ describe('game-guide/Chat', () => {
     // trigger earlier tests' (now-stale) flush handlers.
     let wrapper: ReturnType<typeof mount> | undefined;
 
+    function echoConnectedHandler() {
+        const call = connectionBindMock.mock.calls.find(
+            ([event]) => event === 'connected',
+        );
+
+        return call![1] as () => void;
+    }
+
     beforeEach(() => {
         localStorage.clear();
         setOnline(true);
         listenMock = vi.fn();
+        connectionBindMock = vi.fn();
+        connectionUnbindMock = vi.fn();
         window.Echo = {
             private: vi.fn().mockReturnValue({ listen: listenMock }),
             leaveChannel: vi.fn(),
+            connector: {
+                pusher: {
+                    connection: {
+                        bind: connectionBindMock,
+                        unbind: connectionUnbindMock,
+                    },
+                },
+            },
         } as unknown as Window['Echo'];
         window.axios = {
-            get: vi.fn().mockResolvedValue({
-                data: { data: [], meta: { next_cursor: null } },
-            }),
+            // mockImplementation (not mockResolvedValue) so every call gets a
+            // fresh { data: [] } array — mockResolvedValue would resolve every
+            // call to the *same* array object, and since Vue's ref() wraps
+            // messages.value around whatever loadInitial() assigns it,
+            // pushing onto messages.value in one mount reactively mutates that
+            // shared array in place, silently contaminating a later mount's
+            // own loadInitial() in the same test (bit the reload-persistence
+            // test — see docs/memory/testing.md's 2026-07-27 entry).
+            get: vi.fn().mockImplementation(() =>
+                Promise.resolve({
+                    data: { data: [], meta: { next_cursor: null } },
+                }),
+            ),
             post: vi.fn(),
         } as unknown as Window['axios'];
     });
@@ -83,11 +113,19 @@ describe('game-guide/Chat', () => {
             '.message.created',
             expect.any(Function),
         );
+        expect(connectionBindMock).toHaveBeenCalledWith(
+            'connected',
+            expect.any(Function),
+        );
 
         wrapper.unmount();
 
         expect(window.Echo.leaveChannel).toHaveBeenCalledWith(
             `conversation.${conversationId}`,
+        );
+        expect(connectionUnbindMock).toHaveBeenCalledWith(
+            'connected',
+            expect.any(Function),
         );
     });
 
@@ -247,6 +285,259 @@ describe('game-guide/Chat', () => {
 
         expect(window.axios.post).toHaveBeenCalledTimes(1);
         expect(wrapper.text()).not.toContain('Queued');
+    });
+
+    it('re-fetches history to pick up messages from other sources when the browser comes back online (BUG-10)', async () => {
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        expect(window.axios.get).toHaveBeenCalledTimes(1);
+
+        window.axios.get = vi.fn().mockResolvedValue({
+            data: {
+                data: [serverMessage({ id: 'from-another-device' })],
+                meta: { next_cursor: null },
+            },
+        });
+
+        setOnline(true);
+        window.dispatchEvent(new Event('online'));
+        await flushPromises();
+
+        expect(window.axios.get).toHaveBeenCalledTimes(1);
+        expect(wrapper.text()).toContain('Which wand suits a Gryffindor?');
+    });
+
+    it('re-syncs when the WebSocket reconnects, even without a browser online event (BUG-11)', async () => {
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        expect(window.axios.get).toHaveBeenCalledTimes(1);
+
+        window.axios.get = vi.fn().mockResolvedValue({
+            data: {
+                data: [
+                    serverMessage({
+                        id: 'from-another-device',
+                        body: 'Missed via a silent WebSocket drop',
+                    }),
+                ],
+                meta: { next_cursor: null },
+            },
+        });
+
+        // No 'online' event dispatched here at all — only Pusher-js's own
+        // 'connected' event, simulating a WebSocket-level reconnect that
+        // never toggled navigator.onLine.
+        echoConnectedHandler()();
+        await flushPromises();
+
+        expect(window.axios.get).toHaveBeenCalledTimes(1);
+        expect(wrapper.text()).toContain('Missed via a silent WebSocket drop');
+    });
+
+    it("backfills older pages when more than one page's worth of messages was missed (BUG-12)", async () => {
+        window.axios.get = vi.fn().mockResolvedValue({
+            data: {
+                data: [
+                    serverMessage({
+                        id: 'seq-1',
+                        client_message_id: 'client-id-1',
+                        body: 'First message',
+                        sequence_number: 1,
+                    }),
+                ],
+                meta: { next_cursor: null },
+            },
+        });
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('First message');
+
+        // The "latest page" now starts at sequence 3, two ahead of what this
+        // client already has — a gap that a flat re-fetch would silently
+        // drop. The backfill loop should notice and page one older batch to
+        // close it.
+        window.axios.get = vi
+            .fn()
+            .mockResolvedValueOnce({
+                data: {
+                    data: [
+                        serverMessage({
+                            id: 'seq-3',
+                            client_message_id: 'client-id-3',
+                            body: 'Third message',
+                            sequence_number: 3,
+                        }),
+                    ],
+                    meta: { next_cursor: 'cursor-to-page-2' },
+                },
+            })
+            .mockResolvedValueOnce({
+                data: {
+                    data: [
+                        serverMessage({
+                            id: 'seq-2',
+                            client_message_id: 'client-id-2',
+                            body: 'Second message',
+                            sequence_number: 2,
+                        }),
+                    ],
+                    meta: { next_cursor: null },
+                },
+            });
+
+        window.dispatchEvent(new Event('online'));
+        await flushPromises();
+
+        expect(window.axios.get).toHaveBeenNthCalledWith(
+            1,
+            expect.stringContaining(conversationId),
+        );
+        expect(window.axios.get).toHaveBeenNthCalledWith(
+            2,
+            expect.stringContaining('cursor-to-page-2'),
+        );
+
+        const text = wrapper.text();
+        expect(text).toContain('First message');
+        expect(text).toContain('Second message');
+        expect(text).toContain('Third message');
+        expect(text.indexOf('First message')).toBeLessThan(
+            text.indexOf('Second message'),
+        );
+        expect(text.indexOf('Second message')).toBeLessThan(
+            text.indexOf('Third message'),
+        );
+    });
+
+    it('ignores a synced message it already knows about via the outbox reconciliation, and does not re-add it', async () => {
+        const fixedClientMessageId = 'fixed-client-message-id';
+        vi.spyOn(crypto, 'randomUUID').mockReturnValue(
+            fixedClientMessageId as `${string}-${string}-${string}-${string}-${string}`,
+        );
+
+        setOnline(false);
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        await wrapper.find('textarea').setValue('Sent while offline');
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+
+        const reconciled = serverMessage({
+            id: 'server-id-9',
+            body: 'Sent while offline',
+            sequence_number: 5,
+            client_message_id: fixedClientMessageId,
+        });
+        window.axios.post = vi
+            .fn()
+            .mockResolvedValue({ status: 201, data: { data: reconciled } });
+        window.axios.get = vi.fn().mockResolvedValue({
+            data: { data: [reconciled], meta: { next_cursor: null } },
+        });
+
+        setOnline(true);
+        window.dispatchEvent(new Event('online'));
+        await flushPromises();
+
+        expect(wrapper.text().match(/Sent while offline/g)).toHaveLength(1);
+
+        vi.restoreAllMocks();
+    });
+
+    it('orders a message synced from another source ahead of a message still queued locally', async () => {
+        setOnline(false);
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        await wrapper.find('textarea').setValue('My queued message');
+        await wrapper.find('form').trigger('submit');
+        await flushPromises();
+
+        // Never resolves during this test — the locally-queued message stays
+        // pending (sequence_number 0) throughout, so the sync's sort has to
+        // place the other source's real-sequence message ahead of it.
+        window.axios.post = vi.fn().mockReturnValue(new Promise(() => {}));
+        window.axios.get = vi.fn().mockResolvedValue({
+            data: {
+                data: [
+                    serverMessage({
+                        id: 'from-another-device',
+                        body: 'From another device',
+                        sequence_number: 7,
+                    }),
+                ],
+                meta: { next_cursor: null },
+            },
+        });
+
+        setOnline(true);
+        window.dispatchEvent(new Event('online'));
+        await flushPromises();
+
+        const text = wrapper.text();
+        expect(text).toContain('From another device');
+        expect(text).toContain('My queued message');
+        expect(text.indexOf('From another device')).toBeLessThan(
+            text.indexOf('My queued message'),
+        );
+    });
+
+    it('reorders two real messages by sequence_number when a missed earlier message syncs in after a later one', async () => {
+        window.axios.get = vi.fn().mockResolvedValue({
+            data: {
+                data: [
+                    serverMessage({
+                        id: 'seq-2',
+                        client_message_id: 'client-id-2',
+                        body: 'Second message',
+                        sequence_number: 2,
+                    }),
+                ],
+                meta: { next_cursor: null },
+            },
+        });
+
+        wrapper = mount(Chat, { props: { conversationId } });
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('Second message');
+
+        window.axios.get = vi.fn().mockResolvedValue({
+            data: {
+                data: [
+                    serverMessage({
+                        id: 'seq-1',
+                        client_message_id: 'client-id-1-distinct',
+                        body: 'First message',
+                        sequence_number: 1,
+                    }),
+                    serverMessage({
+                        id: 'seq-2',
+                        client_message_id: 'client-id-2',
+                        body: 'Second message',
+                        sequence_number: 2,
+                    }),
+                ],
+                meta: { next_cursor: null },
+            },
+        });
+
+        window.dispatchEvent(new Event('online'));
+        await flushPromises();
+
+        const text = wrapper.text();
+        expect(text).toContain('First message');
+        expect(text).toContain('Second message');
+        expect(text.indexOf('First message')).toBeLessThan(
+            text.indexOf('Second message'),
+        );
     });
 
     it('replays multiple queued messages in order, one at a time', async () => {
